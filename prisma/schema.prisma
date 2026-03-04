@@ -93,7 +93,7 @@ model Notifications {
   Users          Users     @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK__Notificat__UserI__22751F6C")
 }
 
-model OrderItems {
+model OrderItems {  
   OrderItemId Int      @id(map: "PK__OrderIte__57ED0681C0DC3108") @default(autoincrement())
   OrderId     Int
   ProductId   Int
