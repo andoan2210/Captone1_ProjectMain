@@ -212,5 +212,35 @@ export class UsersService {
   return { message: 'Email verified successfully' };
 }
 
+  async resendVerificationCode(email: string) {
+  try {
+    const user = await this.prisma.users.findUnique({
+      where: { Email: email },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User not found: ${email}`);
+    }
+
+    if (user.IsActive) {
+      throw new BadRequestException('Email already verified');
+    }
+
+    // gửi lại code
+    await this.mailService.sendVerificationCode(email);
+
+    this.logger.log('Resending verification code', { email });
+
+    return {
+      message: 'Verification code resent successfully',
+    };
+
+  } catch (error) {
+    this.logger.error('Failed to resend verification code', { error });
+    throw new BadRequestException(
+      'Failed to resend verification code: ' + error.message,
+    );
+  }
+}
 }
 

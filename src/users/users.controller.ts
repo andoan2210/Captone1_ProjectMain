@@ -3,6 +3,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { ResendCodeDto } from './dto/resend-code.dto';
 
 @Controller('users')
 export class UsersController {
@@ -32,12 +33,6 @@ export class UsersController {
     return this.usersService.findByEmail(email);
   }
 
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(+id);
-  }
-
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateDto: UpdateUserDto) {
     return this.usersService.update(+id, updateDto);
@@ -48,9 +43,19 @@ export class UsersController {
   remove(@Body() body: { email: string }) {
     return this.usersService.remove(body.email);
   }
-  
+
   @Post('verify-email')
   verifyEmail(@Body() body: { email: string; code: string }) {
     return this.usersService.verifyEmailCode(body.email, body.code);
+  }
+
+  @Post('resend-code')
+  resendVerification(@Body() dto: ResendCodeDto) {
+    return this.usersService.resendVerificationCode(dto.email);
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.usersService.findOne(+id);
   }
 }
