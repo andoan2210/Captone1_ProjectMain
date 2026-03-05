@@ -3,6 +3,9 @@ import { AuthService } from './auth.service';
 import {Response} from 'express';
 import { LocalAuthGuard } from './passport/local-auth.guard';
 import { JwtAuthGuard } from './passport/jwt-auth.guard';
+import { RolesGuard } from './passport/roles.guard';
+import { Roles } from './decorators/roles.decorator';
+import { Role } from './enums/role.enum';
 
 @Controller('auth')
 export class AuthController {
@@ -40,7 +43,8 @@ export class AuthController {
     return req.logout();
   }
 
-  @UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.SHOP_OWNER, Role.CLIENT)
   @Get('profile')
   getProfile(@Request() req) {
     return req.user;

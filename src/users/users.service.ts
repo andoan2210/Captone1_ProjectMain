@@ -42,7 +42,7 @@ export class UsersService {
         },
       });
 
-      // Send verification code to user's email
+      // Send verification code to user email
       await this.mailService.sendVerificationCode(email);
 
       this.logger.log('Creating new user', { data: createDto });
