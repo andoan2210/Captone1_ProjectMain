@@ -37,10 +37,13 @@ export class AuthController {
   return result;
 }
   
-  @UseGuards(LocalAuthGuard)
   @Post('logout')
-  async logout(@Request() req) {
-    return req.logout();
+  logout(@Res({ passthrough: true }) res: Response) {
+    res.clearCookie('refreshToken');
+
+    return {
+      message: 'Logged out successfully',
+    };
   }
 
 @UseGuards(JwtAuthGuard, RolesGuard)

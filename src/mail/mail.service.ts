@@ -6,7 +6,7 @@ import { UsersService } from '../users/users.service';
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly CODE_TTL = 300; // 5 minutes in seconds
+  private readonly CODE_TTL = 300; // 5 p 
   private readonly CODE_PREFIX = 'verify:';
 
   constructor(

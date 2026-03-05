@@ -7,6 +7,8 @@ import { hashPasswordHelpers } from 'src/helpers/util';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { MailService } from '../mail/mail.service';
 import { RedisService } from 'src/shared/service/redis.service';
+import { ChangeForgotPasswordDto } from './dto/change-forgot-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 
 @Injectable()
 export class UsersService {
@@ -96,7 +98,7 @@ export class UsersService {
     }
   }
 
-  async findByEmail(email: string) {
+  async findByEmail(email: string) : Promise<Users>{
     try {
       const user = await this.prisma.users.findUnique({
         where: { Email: email },
@@ -138,7 +140,7 @@ export class UsersService {
     }
   }
 
-  async update(id: number, updateDto: UpdateUserDto) {
+  async updateProfile(id: number, updateDto: UpdateUserDto) {
     try {
       const existingUser = await this.prisma.users.findUnique({
         where: { UserId: id },
@@ -189,7 +191,92 @@ export class UsersService {
       throw new BadRequestException('Failed to delete user: ' + error.message);
     }
   }
+  
+  // gọi ngoài phần quên mật khẩu ở login gửi mã xác thực về mail
+  async forgotPassword(forgotPasswordDto: ForgotPasswordDto){
+    try {
+      const user = await this.prisma.users.findUnique({
+        where: { Email: forgotPasswordDto.email },
+      });
 
+      if (!user) {
+        throw new NotFoundException(`User not found: ${forgotPasswordDto.email}`);
+      }
+
+      await this.mailService.sendVerificationCode(forgotPasswordDto.email);
+
+      this.logger.log('Forgot password', { email: forgotPasswordDto.email });
+
+      return {
+        message: 'Verification code sent to email',
+      };
+    } catch (error) {
+      this.logger.error('Failed to forgot password', { error });
+      throw new BadRequestException('Failed to forgot password: ' + error.message);
+    }
+  }
+  // nhập mã gửi về mail để thay đổi mật khẩu
+  async changeForgotPassword(changeForgotPasswordDto: ChangeForgotPasswordDto){
+    try {
+      const user = await this.prisma.users.findUnique({
+        where: { Email: changeForgotPasswordDto.email },
+      });
+
+      if (!user) {
+        throw new NotFoundException(`User not found: ${changeForgotPasswordDto.email}`);
+      }
+
+      const storedCode = await this.redisService.get(`verify:${changeForgotPasswordDto.email}`);
+
+      if (!storedCode) {
+        throw new BadRequestException('Verification code expired');
+      }
+
+      if (storedCode !== changeForgotPasswordDto.code) {
+        throw new BadRequestException('Invalid verification code');
+      }
+
+      await this.redisService.del(`verify:${changeForgotPasswordDto.email}`);
+
+      await this.updatePassword(changeForgotPasswordDto.email, changeForgotPasswordDto.newPassword);
+
+      this.logger.log('Change forgot password', { email: changeForgotPasswordDto.email });
+
+      return {
+        message: 'Password changed successfully',
+      };
+    } catch (error) {
+      this.logger.error('Failed to change forgot password', { error });
+      throw new BadRequestException('Failed to change forgot password: ' + error.message);
+    }
+  }
+  async updatePassword(email: string, newPassword: string) {
+  try {
+    const user = await this.prisma.users.findUnique({
+      where: { Email: email },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User not found: ${email}`);
+    }
+
+    const hashPassword = await hashPasswordHelpers(newPassword);
+
+    await this.prisma.users.update({
+      where: { Email: email },
+      data: { PasswordHash: String(hashPassword) , UpdatedAt : new Date()},
+    });
+
+    this.logger.log('Updating password', { email });
+
+    return {
+      message: 'Password updated successfully',
+    };
+  } catch (error) {
+    this.logger.error('Failed to update password', { error });
+    throw new BadRequestException('Failed to update password: ' + error.message);
+  }
+}
 
   async verifyEmailCode(email: string, code: string) {
   const storedCode = await this.redisService.get(`verify:${email}`);
