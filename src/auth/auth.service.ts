@@ -3,6 +3,7 @@ import { UsersService } from '../users/users.service';
 import { comparePasswordHelpers } from '../helpers/util';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { CreateUserGoogleDto } from './dto/create-user-google.dto';
 
 export interface TokenPayload {
   sub: string;
@@ -30,11 +31,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid username');
     }
 
+    // check neu la google user
+    if (!user.PasswordHash) {
+      throw new UnauthorizedException('Password not set');
+    }
+
     const isValidPassword = await comparePasswordHelpers(
       pass,
       user.PasswordHash,
     );
-
+    
     if (!isValidPassword) {
       throw new UnauthorizedException('Invalid password');
     }
@@ -110,4 +116,11 @@ export class AuthService {
   }
 }
 
+  async validateGoogleUser(googleUser : CreateUserGoogleDto){
+    const user = await this.usersService.findByEmailGoogle(googleUser.email);
+    if(user){
+       return user;
+    }
+    return this.usersService.createUserGoogle(googleUser);
+  }
 }

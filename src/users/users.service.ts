@@ -9,6 +9,7 @@ import { MailService } from '../mail/mail.service';
 import { RedisService } from 'src/shared/service/redis.service';
 import { ChangeForgotPasswordDto } from './dto/change-forgot-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { CreateUserGoogleDto } from 'src/auth/dto/create-user-google.dto';
 
 @Injectable()
 export class UsersService {
@@ -53,6 +54,45 @@ export class UsersService {
         email : user.Email,
         role : user.Role,
         message : 'User created successfully. Verification code sent to email.',
+      }
+    } catch (error) {
+      this.logger.error('Failed to create user', { error });
+      throw new BadRequestException('Failed to create user: ' + error.message);
+    }
+  }
+
+  async createUserGoogle(createDto: CreateUserGoogleDto) {
+    try {
+      const {name,email,role,isActive,avatarUrl,providerId} = createDto;
+
+      // Check if email already exists
+      const existingUser = await this.prisma.users.findUnique({
+        where: { Email: email },
+      });
+
+      if (existingUser) {
+        throw new BadRequestException(`Email already exists : ${email}`);
+      }
+
+      const user = await this.prisma.users.create({
+        data: {
+          FullName: name,
+          Email: email, 
+          PasswordHash: "",
+          Role: role,
+          IsActive: isActive,
+          AvatarUrl : avatarUrl, 
+          AuthProvider : "google", 
+          ProviderId : providerId,
+        },
+      });
+
+      this.logger.log('Creating new user', { data: createDto });
+      return {
+        id : user.UserId,
+        email : user.Email,
+        role : user.Role,
+        message : 'User created successfully.',
       }
     } catch (error) {
       this.logger.error('Failed to create user', { error });
@@ -114,7 +154,22 @@ export class UsersService {
       throw new BadRequestException('Failed to fetch user: ' + error.message);
     }
   }
-
+  async findByEmailGoogle(email: string) : Promise<Users | null>{
+    try {
+      const user = await this.prisma.users.findUnique({
+        where: { Email: email },
+      });
+      if(!user){
+        return null;
+      }
+      this.logger.log('Fetching user', { data: user });
+      return user;
+    } catch (error) {
+      this.logger.error('Failed to fetch user', { error });
+      throw new BadRequestException('Failed to fetch user: ' + error.message);
+    }
+  }
+  
   async findOne(id: number) {
     try {
       const user = await this.prisma.users.findUnique({

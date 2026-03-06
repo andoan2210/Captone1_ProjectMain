@@ -93,7 +93,7 @@ model Notifications {
   Users          Users     @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK__Notificat__UserI__22751F6C")
 }
 
-model OrderItems {  
+model OrderItems {
   OrderItemId Int      @id(map: "PK__OrderIte__57ED0681C0DC3108") @default(autoincrement())
   OrderId     Int
   ProductId   Int
@@ -215,7 +215,7 @@ model Users {
   UserId                                         Int                  @id(map: "PK__Users__1788CC4C708B2323") @default(autoincrement())
   FullName                                       String               @db.NVarChar(150)
   Email                                          String               @unique(map: "UQ__Users__A9D10534F3BD59B4") @db.NVarChar(150)
-  PasswordHash                                   String               @db.NVarChar(255)
+  PasswordHash                                   String?              @db.NVarChar(255)
   Phone                                          String?              @db.NVarChar(20)
   AvatarUrl                                      String?              @db.NVarChar(500)
   Role                                           String               @db.NVarChar(20)
@@ -223,6 +223,8 @@ model Users {
   IsDeleted                                      Boolean?             @default(false, map: "DF__Users__IsDeleted__4CA06362")
   CreatedAt                                      DateTime?            @default(dbgenerated("sysdatetime()"), map: "DF__Users__CreatedAt__4D94879B")
   UpdatedAt                                      DateTime?
+  AuthProvider                                   String               @default("local", map: "DF__Users__AuthProvi__3A4CA8FD") @db.NVarChar(20)
+  ProviderId                                     String?              @db.NVarChar(255)
   AI_Recommendations                             AI_Recommendations[]
   Carts                                          Carts?
   Conversations_Conversations_ClientIdToUsers    Conversations[]      @relation("Conversations_ClientIdToUsers")

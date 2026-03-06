@@ -6,6 +6,8 @@ import { JwtAuthGuard } from './passport/jwt-auth.guard';
 import { RolesGuard } from './passport/roles.guard';
 import { Roles } from './decorators/roles.decorator';
 import { Role } from './enums/role.enum';
+import { Public } from './decorators/public.decorator';
+import { GoogleAuthGuard } from './guards/goolge-auth/goolge-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -46,12 +48,34 @@ export class AuthController {
     };
   }
 
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.SHOP_OWNER, Role.CLIENT)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.SHOP_OWNER, Role.CLIENT)
   @Get('profile')
   getProfile(@Request() req) {
     return req.user;
   }
 
+  @Public()
+  @Get("google/login")
+  @UseGuards(GoogleAuthGuard)
+  googleLogin() {
 
+  }
+  
+  @Get("google/callback")
+  @UseGuards(GoogleAuthGuard)
+  async googleCallback(@Request() req, @Res({ passthrough: true }) res: Response) {
+    const tokens = await this.authService.login(req.user);
+
+    res.cookie('refreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: false, // production = true
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return {
+    accessToken: tokens.accessToken,
+  };
+  }
 }

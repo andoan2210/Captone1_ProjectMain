@@ -7,11 +7,12 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PassportModule } from '@nestjs/passport';
 import { LocalStrategy } from './passport/local.strategy';
 import { JwtStrategy } from './passport/jwt.strategy';
-  
+import googleOAuthConfig from 'src/config/google-oauth.config';
+import { GoogleStrategy } from './passport/google.strategy';  
 
 @Module({
   controllers: [AuthController],
-  providers: [AuthService,LocalStrategy,JwtStrategy],
+  providers: [AuthService,LocalStrategy,JwtStrategy,GoogleStrategy],
   imports: [UsersModule,
 
     // Source - https://stackoverflow.com/a/54310397
@@ -28,7 +29,7 @@ import { JwtStrategy } from './passport/jwt.strategy';
   inject: [ConfigService],
 }),
             PassportModule,
-
+            ConfigModule.forFeature(googleOAuthConfig),
   ],
 })
 export class AuthModule {}
