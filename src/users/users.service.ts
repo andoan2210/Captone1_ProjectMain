@@ -10,6 +10,7 @@ import { RedisService } from 'src/shared/service/redis.service';
 import { ChangeForgotPasswordDto } from './dto/change-forgot-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { CreateUserGoogleDto } from 'src/auth/dto/create-user-google.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 
 @Injectable()
 export class UsersService {
@@ -46,7 +47,7 @@ export class UsersService {
       });
 
       // Send verification code to user email
-      await this.mailService.sendVerificationCode(email);
+      await this.mailService.sendVerificationCode(email,'verify-email');
 
       this.logger.log('Creating new user', { data: {name,email, role:user.Role, isActive:user.IsActive} });
       return {
@@ -271,7 +272,10 @@ export class UsersService {
         throw new NotFoundException(`User not found: ${email}`);
       }
 
-      await this.mailService.sendVerificationCode(email);
+      if(user.IsActive === false){
+        throw new BadRequestException('User is not active');
+      }
+      await this.mailService.sendVerificationCode(email, "forgot");
 
       // set cooldown 60s
       await this.redisService.set(cooldownKey, '1', 60);
@@ -287,92 +291,106 @@ export class UsersService {
       throw new BadRequestException('Failed to forgot password: ' + error.message);
     }
   }
-  // nhập mã gửi về mail để thay đổi mật khẩu
-  async changeForgotPassword(changeForgotPasswordDto: ChangeForgotPasswordDto){
+
+
+
+  async verifyCode(email: string, code: string, type: "verify-email" | "forgot") {
+    const storedCode = await this.redisService.get(`${type}:${email}`);
+
+    if (!storedCode) {
+      throw new BadRequestException('Verification code expired');
+    }
+
+    if (storedCode !== code.trim()) {
+      throw new BadRequestException('Invalid verification code');
+    }
+
+    await this.redisService.del(`${type}:${email}`);
+
+    return true;
+  }
+
+  // Nhập mã để verify mail khi đăng kí
+  async verifyEmailCode(verifyEmailDto : VerifyEmailDto) {
+    await this.verifyCode(verifyEmailDto.email, verifyEmailDto.code, "verify-email");
+
+    await this.prisma.users.update({
+      where: { Email: verifyEmailDto.email },
+      data: { IsActive: true },
+    });
+    this.logger.log("Email verified successfully", { email : verifyEmailDto.email });
+    return { message: "Email verified successfully" };
+  }
+
+    // nhập mã gửi về mail để thay đổi mật khẩu
+  async verifyForgotPasswordCode(verifyEmailDto: VerifyEmailDto) {
+    await this.verifyCode(verifyEmailDto.email, verifyEmailDto.code, "forgot");
+
+    // cho phép đổi password trong 10 phút
+    await this.redisService.set(
+      `reset-allowed:${verifyEmailDto.email}`,
+      "true",
+      600,
+    );
+
+    return {
+      email: verifyEmailDto.email,
+      message: "Code verified. You can change password now.",
+    };
+  }
+
+  
+  async updateNewPassword(changeForgotPasswordDto : ChangeForgotPasswordDto) {
     try {
+
+      const allowed = await this.redisService.get(
+        `reset-allowed:${changeForgotPasswordDto.email}`
+      );
+
+      if (!allowed) {
+        throw new BadRequestException("Please verify code first");
+      }
+
       const user = await this.prisma.users.findUnique({
         where: { Email: changeForgotPasswordDto.email },
       });
 
       if (!user) {
-        throw new NotFoundException(`User not found: ${changeForgotPasswordDto.email}`);
+        throw new NotFoundException(
+          `User not found: ${changeForgotPasswordDto.email}`
+        );
       }
 
-      const storedCode = await this.redisService.get(`verify:${changeForgotPasswordDto.email}`);
+      const hashPassword = await hashPasswordHelpers(
+        changeForgotPasswordDto.newPassword
+      );
 
-      if (!storedCode) {
-        throw new BadRequestException('Verification code expired');
-      }
+      await this.prisma.users.update({
+        where: { Email: changeForgotPasswordDto.email },
+        data: {
+          PasswordHash: String(hashPassword),
+          UpdatedAt: new Date(),
+        },
+      });
 
-      if (storedCode !== changeForgotPasswordDto.code) {
-        throw new BadRequestException('Invalid verification code');
-      }
-
-      await this.redisService.del(`verify:${changeForgotPasswordDto.email}`);
-
-      await this.updatePassword(changeForgotPasswordDto.email, changeForgotPasswordDto.newPassword);
-
-      this.logger.log('Change forgot password', { email: changeForgotPasswordDto.email });
+      // xóa quyền reset sau khi dùng
+      await this.redisService.del(
+        `reset-allowed:${changeForgotPasswordDto.email}`
+      );
 
       return {
-        message: 'Password changed successfully',
-      };
-    } catch (error) {
-      this.logger.error('Failed to change forgot password', { error });
-      throw new BadRequestException('Failed to change forgot password: ' + error.message);
-    }
-  }
-  async updatePassword(email: string, newPassword: string) {
-  try {
-    const user = await this.prisma.users.findUnique({
-      where: { Email: email },
-    });
-
-    if (!user) {
-      throw new NotFoundException(`User not found: ${email}`);
-    }
-
-    const hashPassword = await hashPasswordHelpers(newPassword);
-
-    await this.prisma.users.update({
-      where: { Email: email },
-      data: { PasswordHash: String(hashPassword) , UpdatedAt : new Date()},
-    });
-
-    this.logger.log('Updating password', { email });
-
-    return {
-      message: 'Password updated successfully',
+      message: "Password updated successfully",
     };
-  } catch (error) {
-    this.logger.error('Failed to update password', { error });
-    throw new BadRequestException('Failed to update password: ' + error.message);
+
+    } catch (error) {
+      throw new BadRequestException(
+        "Failed to update password: " + error.message
+      );
+    }
   }
-}
-
-  async verifyEmailCode(email: string, code: string) {
-  const storedCode = await this.redisService.get(`verify:${email}`);
-
-  if (!storedCode) {
-    throw new BadRequestException('Verification code expired');
-  }
-
-  if (storedCode !== code) {
-    throw new BadRequestException('Invalid verification code');
-  }
-
-  await this.prisma.users.update({
-    where: { Email: email },
-    data: { IsActive: true },
-  });
-
-  await this.redisService.del(`verify:${email}`);
-
-  return { message: 'Email verified successfully' };
-}
 
   async resendVerificationCode(email: string) {
-  try {
+    try {
 
     const cooldownKey = `cooldown:verify:${email}`;
     const cooldown = await this.redisService.get(cooldownKey);
@@ -393,7 +411,7 @@ export class UsersService {
       throw new BadRequestException('Email already verified');
     }
 
-    await this.mailService.sendVerificationCode(email);
+    await this.mailService.sendVerificationCode(email, "verify-email");
 
     // set cooldown 60s
     await this.redisService.set(cooldownKey, '1', 60);
@@ -404,13 +422,11 @@ export class UsersService {
       message: 'Verification code resent successfully',
     };
 
-  } catch (error) {
-    this.logger.error('Failed to resend verification code', { error });
-    throw new BadRequestException(
-      'Failed to resend verification code: ' + error.message,
-    );
+    } catch (error) {
+      this.logger.error('Failed to resend verification code', { error });
+      throw new BadRequestException(
+        'Failed to resend verification code: ' + error.message,
+      );
+    }
   }
 }
-}
-
-

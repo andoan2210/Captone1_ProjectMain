@@ -46,21 +46,30 @@ export class UsersController {
     return this.usersService.remove(body.email);
   }
 
+  // Nhập mã để verify mail khi đăng kí tài khoản
+  @Post('verify-email')
+  verifyEmail(@Body() body: VerifyEmailDto) {
+    return this.usersService.verifyEmailCode(body);
+  }
+
+  // Quên mật khẩu 
   @Post('forgot-password')
   forgotPassword(@Body() body: ForgotPasswordDto) {
     return this.usersService.forgotPassword(body);
   }
-
+  
+  // Nhập mã gửi về mail để thay đổi mật khẩu
+  @Post('verify-forgot-password-code')
+  verifyForgotPasswordCode(@Body() body: VerifyEmailDto ){
+    return this.usersService.verifyForgotPasswordCode(body);
+  }
+  // Thay đổi mật khẩu
   @Post('change-forgot-password')
   changeForgotPassword(@Body() body: ChangeForgotPasswordDto) {
-    return this.usersService.changeForgotPassword(body);
+    return this.usersService.updateNewPassword(body);
   }
 
-  @Post('verify-email')
-  verifyEmail(@Body() body: { email: string; code: string }) {
-    return this.usersService.verifyEmailCode(body.email, body.code);
-  }
-
+  // Gửi lại mã khi đăng kí tài khoản
   @Post('resend-code')
   resendVerification(@Body() dto: ResendCodeDto) {
     return this.usersService.resendVerificationCode(dto.email);

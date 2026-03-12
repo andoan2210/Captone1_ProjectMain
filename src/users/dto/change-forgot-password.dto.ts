@@ -8,12 +8,8 @@ export class ChangeForgotPasswordDto {
 
   @IsNotEmpty({ message: 'Code is required' })
   @IsString()
-  code: string;
+  newPassword : string;
 
-  @IsNotEmpty({ message: 'Password is required' })
-  @IsString()
-  @Length(6, 30, { message: 'Password must be at least 6 characters long' })
-  newPassword: string;
 
 
 } 

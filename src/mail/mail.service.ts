@@ -16,14 +16,15 @@ export class MailService {
     private readonly usersService: UsersService,
   ) {}
 
-  async sendVerificationCode(email: string) {
-    // Generate a random 6-digit code
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+  async sendVerificationCode(
+  email: string,
+  type: string,
+) {
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Store in Redis with TTL
-    const key = `${this.CODE_PREFIX}${email}`;
-    await this.redisService.set(key, code, this.CODE_TTL);
+  const key = `${type}:${email}`;
 
+  await this.redisService.set(key, code, this.CODE_TTL);
     // Send email
     await this.mailerService.sendMail({
       to: email,

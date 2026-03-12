@@ -9,7 +9,7 @@ export class MailController {
 
   @Post('send-verification')
   sendVerificationCode(@Body() dto: SendVerificationDto) {
-    return this.mailService.sendVerificationCode(dto.email);
+    return this.mailService.sendVerificationCode(dto.email, dto.type);
   }
 
 }
