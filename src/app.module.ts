@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { MailModule } from './mail/mail.module';
 import redisConfig, { mailConfig } from './config/env.config';
 import { RedisModule } from './shared/redis.module';
+import { UploadModule } from './upload/upload.module';
 @Module({
   imports: [
     PrismaModule,
@@ -31,7 +32,8 @@ import { RedisModule } from './shared/redis.module';
       inject: [ConfigService],
     }),
     AuthModule,
-    MailModule,   
+    MailModule,
+    UploadModule,   
   ],
   controllers: [AppController],
   providers: [AppService],

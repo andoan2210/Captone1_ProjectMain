@@ -11,6 +11,7 @@ import { ChangeForgotPasswordDto } from './dto/change-forgot-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { CreateUserGoogleDto } from 'src/auth/dto/create-user-google.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { UploadService } from 'src/upload/upload.service';
 
 @Injectable()
 export class UsersService {
@@ -21,6 +22,7 @@ export class UsersService {
         @Inject(forwardRef(() => MailService))
         private readonly mailService: MailService,
         private readonly redisService: RedisService,
+        private readonly uploadService: UploadService,
     ) {}
   async create(createDto: CreateUserDto) {
     try {  
@@ -199,7 +201,7 @@ export class UsersService {
     }
   }
 
-  async updateProfile(id: number, updateDto: UpdateUserDto) {
+  async updateProfile(id: number, updateDto: UpdateUserDto , file?: Express.Multer.File) {
     try {
       const existingUser = await this.prisma.users.findUnique({
         where: { UserId: id },
@@ -208,12 +210,21 @@ export class UsersService {
       if (!existingUser) {
         throw new NotFoundException(`User not found: ${id}`);
       }
+
+      let avatarUrl = existingUser.AvatarUrl;
+      if(file){
+        if(existingUser.AvatarUrl){
+          await this.uploadService.deleteFile(existingUser.AvatarUrl);
+        }
+        avatarUrl = await this.uploadService.uploadImage(file,'avatars');
+      }
+
       const user = await this.prisma.users.update({
         where: { UserId: id },
         data:{
             FullName : updateDto.fullName,
             Phone : updateDto.phone,
-            AvatarUrl : updateDto.avatarUrl,
+            AvatarUrl : avatarUrl,
             UpdatedAt : new Date(),
         },
       });
@@ -429,4 +440,6 @@ export class UsersService {
       );
     }
   }
+
+
 }

@@ -11,8 +11,6 @@ export class UpdateUserDto  {
     @IsNotEmpty({message: 'Phone is required'})
     phone: string;
 
-    @IsString()
-    @IsOptional()
-    avatarUrl: string;
+
 
 }

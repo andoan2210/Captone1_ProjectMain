@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -6,6 +6,9 @@ import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ResendCodeDto } from './dto/resend-code.dto';
 import { ChangeForgotPasswordDto } from './dto/change-forgot-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
+import { RolesGuard } from 'src/auth/passport/roles.guard';
 
 @Controller('users')
 export class UsersController {
@@ -16,7 +19,7 @@ export class UsersController {
     return this.usersService.create(createUserDto);
   }
   
- @Get()
+ @Get('getAllUsers')
  findAll(
    @Query('page') page = '1',
    @Query('limit') limit = '10',
@@ -35,9 +38,11 @@ export class UsersController {
     return this.usersService.findByEmail(email);
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateDto: UpdateUserDto) {
-    return this.usersService.updateProfile(+id, updateDto);
+  @Patch('profile/:id')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('avatar'))
+  updateProfile(@Param('id') id: string, @Body() updateDto: UpdateUserDto, @UploadedFile() avatar: Express.Multer.File) {
+    return this.usersService.updateProfile(+id, updateDto, avatar);
   }
 
 
