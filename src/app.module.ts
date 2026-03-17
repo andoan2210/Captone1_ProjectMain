@@ -20,6 +20,8 @@ import { ChatModule } from './chat/chat.module';
 import { NotificationModule } from './notification/notification.module';
 import { AirecommendationModule } from './airecommendation/airecommendation.module';
 import { ReportModule } from './report/report.module';
+import { AddressModule } from './address/address.module';
+import { PaymentMethodModule } from './payment-method/payment-method.module';
 @Module({
   imports: [
     PrismaModule,
@@ -53,7 +55,9 @@ import { ReportModule } from './report/report.module';
     ChatModule,
     NotificationModule,
     AirecommendationModule,
-    ReportModule,   
+    ReportModule,
+    AddressModule,
+    PaymentMethodModule,   
   ],
   controllers: [AppController],
   providers: [AppService],

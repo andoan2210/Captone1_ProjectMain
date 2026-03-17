@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -38,11 +38,13 @@ export class UsersController {
     return this.usersService.findByEmail(email);
   }
 
-  @Patch('profile/:id')
+  @Patch('profile')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('avatar'))
-  updateProfile(@Param('id') id: string, @Body() updateDto: UpdateUserDto, @UploadedFile() avatar: Express.Multer.File) {
-    return this.usersService.updateProfile(+id, updateDto, avatar);
+  updateProfile(
+    @Request() req,
+    @Body() updateDto: UpdateUserDto, @UploadedFile() avatar: Express.Multer.File) {
+    return this.usersService.updateProfile(req.user.userId,updateDto, avatar);
   }
 
 

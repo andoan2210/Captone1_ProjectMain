@@ -113,8 +113,10 @@ model Orders {
   ShippingAddress String          @db.NVarChar(300)
   CreatedAt       DateTime?       @default(dbgenerated("sysdatetime()"), map: "DF__Orders__CreatedA__72C60C4A")
   UpdatedAt       DateTime?
+  AddressId       Int?
   Invoices        Invoices?
   OrderItems      OrderItems[]
+  UserAddresses   UserAddresses?  @relation(fields: [AddressId], references: [AddressId], onDelete: NoAction, onUpdate: NoAction, map: "FK_Order_Address")
   Stores          Stores          @relation(fields: [StoreId], references: [StoreId], onUpdate: NoAction, map: "FK_Order_Store")
   Users           Users           @relation(fields: [UserId], references: [UserId], onUpdate: NoAction, map: "FK_Order_User")
   OrderVouchers   OrderVouchers[]
@@ -133,15 +135,17 @@ model OrderVouchers {
 }
 
 model Payments {
-  PaymentId       Int        @id(map: "PK__Payments__9B556A38207DF32E") @default(autoincrement())
-  OrderId         Int
-  PaymentMethod   String     @db.NVarChar(50)
-  TransactionCode String?    @db.NVarChar(150)
-  Amount          Decimal    @db.Decimal(18, 2)
-  Status          String?    @db.NVarChar(50)
-  PaymentDate     DateTime?
-  Invoices        Invoices[]
-  Orders          Orders     @relation(fields: [OrderId], references: [OrderId], onDelete: Cascade, onUpdate: NoAction, map: "FK_Payment_Order")
+  PaymentId          Int                 @id(map: "PK__Payments__9B556A38207DF32E") @default(autoincrement())
+  OrderId            Int
+  PaymentMethod      String              @db.NVarChar(50)
+  TransactionCode    String?             @db.NVarChar(150)
+  Amount             Decimal             @db.Decimal(18, 2)
+  Status             String?             @db.NVarChar(50)
+  PaymentDate        DateTime?
+  PaymentMethodId    Int?
+  Invoices           Invoices[]
+  Orders             Orders              @relation(fields: [OrderId], references: [OrderId], onDelete: Cascade, onUpdate: NoAction, map: "FK_Payment_Order")
+  UserPaymentMethods UserPaymentMethods? @relation(fields: [PaymentMethodId], references: [PaymentMethodId], onDelete: NoAction, onUpdate: NoAction, map: "FK_Payment_UserMethod")
 }
 
 model ProductImages {
@@ -225,6 +229,8 @@ model Users {
   UpdatedAt                                      DateTime?
   AuthProvider                                   String               @default("local", map: "DF__Users__AuthProvi__3A4CA8FD") @db.NVarChar(20)
   ProviderId                                     String?              @db.NVarChar(255)
+  DateOfBirth                                    DateTime?            @db.Date
+  Gender                                         String?              @db.NVarChar(10)
   AI_Recommendations                             AI_Recommendations[]
   Carts                                          Carts?
   Conversations_Conversations_ClientIdToUsers    Conversations[]      @relation("Conversations_ClientIdToUsers")
@@ -234,6 +240,8 @@ model Users {
   Orders                                         Orders[]
   ProductTryHistory                              ProductTryHistory[]
   Stores                                         Stores?
+  UserAddresses                                  UserAddresses[]
+  UserPaymentMethods                             UserPaymentMethods[]
 }
 
 model Vouchers {
@@ -246,4 +254,32 @@ model Vouchers {
   IsActive        Boolean?        @default(true, map: "DF__Vouchers__IsActi__05D8E0BE")
   OrderVouchers   OrderVouchers[]
   Stores          Stores          @relation(fields: [StoreId], references: [StoreId], onUpdate: NoAction, map: "FK_Voucher_Store")
+}
+
+model UserAddresses {
+  AddressId     Int       @id(map: "PK__UserAddr__091C2AFBE10466DC") @default(autoincrement())
+  UserId        Int
+  FullName      String    @db.NVarChar(150)
+  Phone         String    @db.NVarChar(20)
+  Province      String    @db.NVarChar(100)
+  District      String    @db.NVarChar(100)
+  Ward          String    @db.NVarChar(100)
+  DetailAddress String    @db.NVarChar(300)
+  IsDefault     Boolean?  @default(false, map: "DF__UserAddre__IsDef__4F47C5E3")
+  CreatedAt     DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__UserAddre__Creat__503BEA1C")
+  Orders        Orders[]
+  Users         Users     @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK__UserAddre__UserI__51300E55")
+}
+
+model UserPaymentMethods {
+  PaymentMethodId Int        @id(map: "PK__UserPaym__DC31C1D3E0179F0B") @default(autoincrement())
+  UserId          Int
+  Type            String     @db.NVarChar(50)
+  Provider        String?    @db.NVarChar(50)
+  AccountNumber   String?    @db.NVarChar(100)
+  CardHolderName  String?    @db.NVarChar(150)
+  IsDefault       Boolean?   @default(false, map: "DF__UserPayme__IsDef__540C7B00")
+  CreatedAt       DateTime?  @default(dbgenerated("sysdatetime()"), map: "DF__UserPayme__Creat__55009F39")
+  Payments        Payments[]
+  Users           Users      @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK__UserPayme__UserI__55F4C372")
 }
