@@ -9,7 +9,9 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/passport/roles.guard';
-
+import { Role } from 'src/auth/enums/role.enum';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { ChangePasswordDto } from './dto/change-password.dto';
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
@@ -20,6 +22,8 @@ export class UsersController {
   }
   
  @Get('getAllUsers')
+ @UseGuards(JwtAuthGuard, RolesGuard)
+ @Roles(Role.ADMIN)
  findAll(
    @Query('page') page = '1',
    @Query('limit') limit = '10',
@@ -49,6 +53,8 @@ export class UsersController {
 
 
   @Delete()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
   remove(@Body() body: { email: string }) {
     return this.usersService.remove(body.email);
   }
@@ -82,8 +88,23 @@ export class UsersController {
     return this.usersService.resendVerificationCode(dto.email);
   }
 
+
+  @Get('profile')
+  @UseGuards(JwtAuthGuard)
+  getProfile(@Request() req) {
+    return this.usersService.getProfile(req.user.userId);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  changePassword(@Request() req, @Body() body: ChangePasswordDto) {
+    return this.usersService.changePassword(req.user.userId, body);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(+id);
   }
+
+
 }
