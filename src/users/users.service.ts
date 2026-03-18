@@ -10,7 +10,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { Users } from './entities/user.entity';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Logger } from 'nestjs-pino';
-import { hashPasswordHelpers } from 'src/helpers/util';
+import { comparePasswordHelpers, hashPasswordHelpers } from 'src/helpers/util';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { MailService } from '../mail/mail.service';
 import { RedisService } from 'src/shared/service/redis.service';
@@ -19,7 +19,8 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { CreateUserGoogleDto } from 'src/auth/dto/create-user-google.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { UploadService } from 'src/upload/upload.service';
-
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { concatMapTo } from 'rxjs';
 @Injectable()
 export class UsersService {
   constructor(
@@ -255,6 +256,7 @@ export class UsersService {
     }
   }
 
+
   async remove(email: string) {
     try {
       const existingUser = await this.prisma.users.findUnique({
@@ -463,4 +465,91 @@ export class UsersService {
       );
     }
   }
+
+   async getProfile(userId: number) {
+     try {
+      const user = await this.prisma.users.findUnique({
+        where: { UserId: userId },
+          select: {
+              FullName: true,
+              Email: true,
+              Phone: true,
+              IsActive: true,
+              AvatarUrl: true,
+              DateOfBirth: true,
+              Gender: true,
+      },
+    });
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      this.logger.log('Fetching user profile', { userId });
+
+      return {
+        fullName: user.FullName,
+        email: user.Email,
+        phone: user.Phone,
+        isActive: user.IsActive,
+        avatarUrl: user.AvatarUrl,
+        dateOfBirth: user.DateOfBirth,
+        gender: user.Gender,
+      };
+    } catch (error) {
+      this.logger.error('Failed to fetch user', { error });
+
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      throw new BadRequestException('Failed to fetch user');
+    }
+  } 
+  async changePassword(userID: number, changePassword: ChangePasswordDto) {
+  try {
+    const user = await this.prisma.users.findUnique({
+      where: { UserId: userID },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!user.PasswordHash) {
+      throw new BadRequestException('User has no password set');
+    }
+
+    // check pass cu
+    const isMatch = await comparePasswordHelpers(
+      changePassword.oldPassword,
+      user.PasswordHash,
+    );
+
+    if (!isMatch) {
+      throw new BadRequestException('Old password is incorrect');
+    }
+
+    // hash
+    const hashPassword = await hashPasswordHelpers(
+      changePassword.newPassword,
+    );
+
+    await this.prisma.users.update({
+      where: { UserId: userID },
+      data: {
+        PasswordHash: hashPassword,
+        UpdatedAt: new Date(),
+      },
+    });
+    this.logger.log('Password updated successfully', { userId: userID });
+    return {
+      message: 'Password updated successfully',
+    };
+    } catch (error) {
+    throw new BadRequestException(
+      'Failed to update password: ' + error.message,
+    );
+  }
+}
 }
