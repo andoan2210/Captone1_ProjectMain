@@ -2,6 +2,7 @@ import { IsString, IsBoolean, IsOptional, IsNotEmpty, Length } from 'class-valid
 
 export class CreateAddressDto {
   @IsString()
+  @IsNotEmpty({ message: 'Full name is required' })
   fullName: string;
 
   @IsString()
