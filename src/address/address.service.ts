@@ -144,9 +144,23 @@ async updateAddress(userId: number, id: number, dto: UpdateAddressDto) {
       }
 
       if (existing.IsDefault && dto.isDefault === false) {
-        throw new BadRequestException(
-          'Must have at least one default address',
-        );
+        // cho phep xet default la false neu nhu co address khac
+          const another = await tx.userAddresses.findFirst({
+          where: {
+            UserId: userId,
+            AddressId: { not: id },
+          },
+          })
+          if (!another) {
+            throw new BadRequestException(
+              'Must have at least one default address',
+            );
+          }
+
+          await tx.userAddresses.update({
+            where: { AddressId: another.AddressId },
+            data: { IsDefault: true },
+          });
       }
 
       return tx.userAddresses.update({
