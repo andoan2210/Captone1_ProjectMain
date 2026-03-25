@@ -1,3 +1,5 @@
+// Có nhiệm vụ viết unit-test cho các controller.
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';

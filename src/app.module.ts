@@ -1,3 +1,5 @@
+//Root module của ứng dụng.
+
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -22,6 +24,7 @@ import { AirecommendationModule } from './airecommendation/airecommendation.modu
 import { ReportModule } from './report/report.module';
 import { AddressModule } from './address/address.module';
 import { PaymentMethodModule } from './payment-method/payment-method.module';
+import { CategoryModule } from './category/category.module';
 @Module({
   imports: [
     PrismaModule,
@@ -57,7 +60,8 @@ import { PaymentMethodModule } from './payment-method/payment-method.module';
     AirecommendationModule,
     ReportModule,
     AddressModule,
-    PaymentMethodModule,   
+    PaymentMethodModule,
+    CategoryModule,   
   ],
   controllers: [AppController],
   providers: [AppService],

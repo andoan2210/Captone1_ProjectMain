@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { VoucherService } from './voucher.service';
 import { CreateVoucherDto } from './dto/create-voucher.dto';
 import { UpdateVoucherDto } from './dto/update-voucher.dto';
@@ -12,9 +12,10 @@ export class VoucherController {
     return this.voucherService.create(createVoucherDto);
   }
 
-  @Get()
-  findAll() {
-    return this.voucherService.findAll();
+  @Get('top-voucher')
+  getVoucherByBest(@Query('limit') limit: number) {
+    const limitNumber = limit || 5;
+    return this.voucherService.getVoucherByBest(limitNumber);
   }
 
   @Get(':id')
