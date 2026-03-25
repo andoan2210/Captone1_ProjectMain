@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
 } from '@nestjs/common';
 import { StoreService } from './store.service';
 import { CreateStoreDto } from './dto/create-store.dto';
@@ -23,6 +24,12 @@ export class StoreController {
   @Get()
   findAll() {
     return this.storeService.findAll();
+  }
+
+  @Get('top-store')
+  getTopStore(@Query('limit') limit: number) {
+    const limitNumber = limit || 5;
+    return this.storeService.getStoreByBest(limitNumber);
   }
 
   @Get(':id')
