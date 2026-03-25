@@ -9,7 +9,6 @@ import {
   Request,
   UseGuards,
   Query,
-
 } from '@nestjs/common';
 import { StoreService } from './store.service';
 import { CreateStoreDto } from './dto/create-store.dto';
@@ -23,13 +22,18 @@ import { Role } from 'src/auth/enums/role.enum';
 export class StoreController {
   constructor(private readonly storeService: StoreService) {}
 
-  // API lấy thông tin cửa hàng của shop owner hiện tại
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SHOP_OWNER)
   @Get('me')
   getMyStore(@Request() req) {
-    // Lấy userId từ token đã được decode bởi JwtStrategy
     return this.storeService.getMyStore(req.user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
+  @Patch('me')
+  updateMyStore(@Request() req, @Body() updateStoreDto: UpdateStoreDto) {
+    return this.storeService.updateMyStore(req.user.userId, updateStoreDto);
   }
 
   @Post()
@@ -44,7 +48,7 @@ export class StoreController {
 
   @Get('top-store')
   getTopStore(@Query('limit') limit: number) {
-    const limitNumber = limit || 5;
+    const limitNumber = Number(limit) || 5;
     return this.storeService.getStoreByBest(limitNumber);
   }
 
