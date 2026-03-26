@@ -54,7 +54,11 @@ export class ProductService {
       }
 
       const imageUrls = Array.from(
-        new Set((createProductDto.imageUrls ?? []).map((item) => item.trim()).filter(Boolean)),
+        new Set(
+          (createProductDto.imageUrls ?? [])
+            .map((item) => item.trim())
+            .filter(Boolean),
+        ),
       );
 
       const product = await this.prisma.$transaction(async (tx) => {
@@ -153,11 +157,14 @@ export class ProductService {
           CreatedAt: 'desc',
         },
       });
+
       if (product.length === 0) {
         this.logger.error('Product not found');
         return [];
       }
+
       this.logger.log(product);
+
       const result = product.map((p) => ({
         ProductId: p.ProductId,
         ProductName: p.ProductName,
@@ -178,24 +185,25 @@ export class ProductService {
   }
 
   async getBestSellerProduct(limit: number) {
-  try {
-    const cacheKey = `product:best-seller:${limit}`;
-    const cached = await this.redis.get(cacheKey);
-    if (cached) {
-      this.logger.log('Product from cache');
-      return JSON.parse(cached);
-    }
-    const products = await this.prisma.$queryRaw<
-      {
-        ProductId: number;
-        ProductName: string;
-        Price: number;
-        ThumbnailUrl: string;
-        CreatedAt: Date;
-        CategoryName: string;
-        Sold: number;
-      }[]
-    >`
+    try {
+      const cacheKey = `product:best-seller:${limit}`;
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        this.logger.log('Product from cache');
+        return JSON.parse(cached);
+      }
+
+      const products = await this.prisma.$queryRaw<
+        {
+          ProductId: number;
+          ProductName: string;
+          Price: number;
+          ThumbnailUrl: string;
+          CreatedAt: Date;
+          CategoryName: string;
+          Sold: number;
+        }[]
+      >`
       SELECT TOP (${limit})
         p.ProductId,
         p.ProductName,
@@ -221,6 +229,7 @@ export class ProductService {
         this.logger.error('Product not found');
         return [];
       }
+
       const result = products.map((p) => ({
         id: p.ProductId,
         name: p.ProductName,
@@ -229,7 +238,7 @@ export class ProductService {
         categoryName: p.CategoryName,
         sold: p.Sold,
       }));
-      this.logger.log(products);
+
       await this.redis.set(cacheKey, JSON.stringify(result), 60 * 5);
       this.logger.log('Product from DB');
       return result;
@@ -247,6 +256,7 @@ export class ProductService {
         this.logger.log('Product from cache');
         return JSON.parse(cached);
       }
+
       const skip = (page - 1) * limit;
 
       const products = await this.prisma.products.findMany({
@@ -300,7 +310,75 @@ export class ProductService {
     return `This action updates a #${id} product`;
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} product`;
+  async remove(ownerUserId: number, productId: number) {
+    try {
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          OwnerId: ownerUserId,
+          IsDeleted: false,
+        },
+        select: {
+          StoreId: true,
+        },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      const existingProduct = await this.prisma.products.findFirst({
+        where: {
+          ProductId: productId,
+          StoreId: store.StoreId,
+          IsDeleted: false,
+        },
+        select: {
+          ProductId: true,
+          ProductName: true,
+          StoreId: true,
+        },
+      });
+
+      if (!existingProduct) {
+        throw new NotFoundException('Product not found');
+      }
+
+      const deletedProduct = await this.prisma.products.update({
+        where: {
+          ProductId: existingProduct.ProductId,
+        },
+        data: {
+          IsDeleted: true,
+          IsActive: false,
+        },
+        select: {
+          ProductId: true,
+          ProductName: true,
+          StoreId: true,
+          IsActive: true,
+          IsDeleted: true,
+          UpdatedAt: true,
+        },
+      });
+
+      this.logger.log(
+        `Delete product successfully: productId=${deletedProduct.ProductId}, storeId=${deletedProduct.StoreId}`,
+      );
+
+      return {
+        message: 'Delete product successfully',
+        data: {
+          productId: deletedProduct.ProductId,
+          productName: deletedProduct.ProductName,
+          storeId: deletedProduct.StoreId,
+          isActive: deletedProduct.IsActive,
+          isDeleted: deletedProduct.IsDeleted,
+          updatedAt: deletedProduct.UpdatedAt,
+        },
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 }

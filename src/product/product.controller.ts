@@ -1,4 +1,4 @@
-import { Body,Controller ,Delete ,Get,Param,Patch,Post,Query,Req, UseGuards,} from '@nestjs/common';
+import { Body,Controller ,Delete ,Get,Param,Patch,Post,Query,Req, UseGuards,ParseIntPipe} from '@nestjs/common';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -27,10 +27,12 @@ export class ProductController {
   update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
     return this.productService.update(+id, updateProductDto);
   }
-
+  
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.productService.remove(+id);
+  remove(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.productService.remove(req.user.userId, id);
   }
 
   @Get('new')
