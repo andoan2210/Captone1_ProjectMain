@@ -11,12 +11,7 @@ import { Role } from 'src/auth/enums/role.enum';
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
-  @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SHOP_OWNER)
-  create(@Req() req, @Body() createProductDto: CreateProductDto) {
-    return this.productService.create(req.user.userId, createProductDto);
-  }
+
 
   @Get()
   findAll() {
