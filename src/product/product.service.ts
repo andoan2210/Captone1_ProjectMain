@@ -185,68 +185,73 @@ export class ProductService {
   }
 
   async getBestSellerProduct(limit: number) {
-    try {
-      const cacheKey = `product:best-seller:${limit}`;
-      const cached = await this.redis.get(cacheKey);
-      if (cached) {
-        this.logger.log('Product from cache');
-        return JSON.parse(cached);
-      }
-
-      const products = await this.prisma.$queryRaw<
-        {
-          ProductId: number;
-          ProductName: string;
-          Price: number;
-          ThumbnailUrl: string;
-          CreatedAt: Date;
-          CategoryName: string;
-          Sold: number;
-        }[]
-      >`
-      SELECT TOP (${limit})
-        p.ProductId,
-        p.ProductName,
-        p.Price,
-        p.ThumbnailUrl,
-        p.CreatedAt,
-        c.CategoryName,
-        SUM(oi.Quantity) as Sold
-      FROM OrderItems oi
-      JOIN Products p ON p.ProductId = oi.ProductId AND p.IsActive = 1 AND p.IsDeleted = 0
-      LEFT JOIN Categories c ON c.CategoryId = p.CategoryId
-      GROUP BY 
-        p.ProductId,
-        p.ProductName,
-        p.Price,
-        p.ThumbnailUrl,
-        p.CreatedAt,
-        c.CategoryName
-      ORDER BY Sold DESC
+  try {
+    const cacheKey = `product:best-seller:${limit}`;
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      this.logger.log('Product from cache');
+      return JSON.parse(cached);
+    }
+    const products = await this.prisma.$queryRaw<
+      {
+        ProductId: number;
+        ProductName: string;
+        Price: number;
+        ThumbnailUrl: string;
+        CreatedAt: Date;
+        CategoryName: string;
+        Sold: number;
+      }[]
+    >`
+    SELECT TOP (${limit})
+      p.ProductId,
+      p.ProductName,
+      p.Price,
+      p.ThumbnailUrl,
+      p.CreatedAt,
+      c.CategoryName,
+      SUM(oi.Quantity) as Sold
+    FROM OrderItems oi
+    JOIN ProductVariants pv 
+      ON pv.VariantId = oi.VariantId
+    JOIN Products p 
+      ON p.ProductId = pv.ProductId
+      AND p.IsActive = 1 
+      AND p.IsDeleted = 0
+    LEFT JOIN Categories c 
+      ON c.CategoryId = p.CategoryId
+    GROUP BY 
+      p.ProductId,
+      p.ProductName,
+      p.Price,
+      p.ThumbnailUrl,
+      p.CreatedAt,
+      c.CategoryName
+    ORDER BY Sold DESC
     `;
 
-      if (!products || products.length === 0) {
-        this.logger.error('Product not found');
-        return [];
-      }
-
-      const result = products.map((p) => ({
-        id: p.ProductId,
-        name: p.ProductName,
-        price: p.Price,
-        thumbnail: p.ThumbnailUrl,
-        categoryName: p.CategoryName,
-        sold: p.Sold,
-      }));
-
-      await this.redis.set(cacheKey, JSON.stringify(result), 60 * 5);
-      this.logger.log('Product from DB');
-      return result;
-    } catch (error) {
-      this.logger.error(error);
-      throw error;
+    if (!products || products.length === 0) {
+      this.logger.error('Product not found');
+      return [];
     }
+    const result = products.map(p => ({
+      id: p.ProductId,
+      name: p.ProductName,
+      price: p.Price,
+      thumbnail: p.ThumbnailUrl,
+      categoryName: p.CategoryName,
+      sold: p.Sold,
+    }));
+    this.logger.log(products);
+    await this.redis.set(cacheKey, JSON.stringify(result), 60 * 5);
+    this.logger.log('Product from DB');
+    return result;
+
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
   }
+  } 
 
   async getByCategory(categoryId: number, page: number, limit: number) {
     try {
