@@ -19,12 +19,14 @@ model AI_Recommendations {
 }
 
 model CartItems {
-  CartItemId Int      @id(map: "PK__CartItem__488B0B0AFCB45DCE") @default(autoincrement())
-  CartId     Int
-  ProductId  Int
-  Quantity   Int
-  Carts      Carts    @relation(fields: [CartId], references: [CartId], onDelete: Cascade, onUpdate: NoAction, map: "FK_CartItem_Cart")
-  Products   Products @relation(fields: [ProductId], references: [ProductId], onUpdate: NoAction, map: "FK_CartItem_Product")
+  CartItemId      Int             @id(map: "PK__CartItem__488B0B0A0D4927D0") @default(autoincrement())
+  CartId          Int
+  Quantity        Int
+  VariantId       Int
+  Carts           Carts           @relation(fields: [CartId], references: [CartId], onDelete: Cascade, onUpdate: NoAction, map: "FK_CartItem_Cart")
+  ProductVariants ProductVariants @relation(fields: [VariantId], references: [VariantId], onUpdate: NoAction, map: "FK_CartItem_Variant")
+
+  @@unique([CartId, VariantId], map: "UQ_Cart_Variant")
 }
 
 model Carts {
@@ -90,13 +92,14 @@ model Notifications {
 }
 
 model OrderItems {
-  OrderItemId Int      @id(map: "PK__OrderIte__57ED0681BD749B85") @default(autoincrement())
-  OrderId     Int
-  ProductId   Int
-  Quantity    Int
-  UnitPrice   Decimal  @db.Decimal(18, 2)
-  Orders      Orders   @relation(fields: [OrderId], references: [OrderId], onDelete: Cascade, onUpdate: NoAction, map: "FK_OrderItem_Order")
-  Products    Products @relation(fields: [ProductId], references: [ProductId], onUpdate: NoAction, map: "FK_OrderItem_Product")
+  OrderItemId     Int             @id(map: "PK__OrderIte__57ED0681C0DC3108") @default(autoincrement())
+  OrderId         Int
+  Quantity        Int
+  UnitPrice       Decimal         @db.Decimal(18, 2)
+  VariantId       Int
+  Orders          Orders          @relation(fields: [OrderId], references: [OrderId], onDelete: Cascade, onUpdate: NoAction, map: "FK_OrderItem_Order")
+  ProductVariants ProductVariants @relation(fields: [VariantId], references: [VariantId], onUpdate: NoAction, map: "FK_OrderItem_Variant")
+
 }
 
 model Orders {
@@ -155,19 +158,22 @@ model Products {
   ProductName        String               @db.NVarChar(200)
   Description        String?              @db.NVarChar(Max)
   Price              Decimal              @db.Decimal(18, 2)
-  Stock              Int
   ThumbnailUrl       String?              @db.NVarChar(500)
   IsActive           Boolean?             @default(true, map: "DF__Products__IsActi__6A30C649")
   IsDeleted          Boolean?             @default(false, map: "DF__Products__IsDele__6B24EA82")
   CreatedAt          DateTime?            @default(dbgenerated("sysdatetime()"), map: "DF__Products__Create__6C190EBB")
   UpdatedAt          DateTime?
   AI_Recommendations AI_Recommendations[]
-  CartItems          CartItems[]
-  OrderItems         OrderItems[]
   ProductImages      ProductImages[]
   Categories         Categories?          @relation(fields: [CategoryId], references: [CategoryId], onDelete: NoAction, onUpdate: NoAction, map: "FK_Product_Category")
   Stores             Stores               @relation(fields: [StoreId], references: [StoreId], onUpdate: NoAction, map: "FK_Product_Store")
   ProductTryHistory  ProductTryHistory[]
+
+  ProductVariants    ProductVariants[]
+
+  @@index([CategoryId], map: "IX_Product_Category")
+  @@index([StoreId], map: "IX_Product_Store")
+
 }
 
 model ProductTryHistory {
@@ -272,4 +278,18 @@ model UserPaymentMethods {
   CreatedAt       DateTime?  @default(dbgenerated("sysdatetime()"), map: "DF__UserPayme__Creat__73BA3083")
   Payments        Payments[]
   Users           Users      @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK__UserPayme__UserI__55F4C372")
+}
+
+model ProductVariants {
+  VariantId  Int          @id(map: "PK__ProductV__0EA23384445F38E0") @default(autoincrement())
+  ProductId  Int
+  Size       String       @db.NVarChar(10)
+  Color      String?      @db.NVarChar(50)
+  Stock      Int
+  Price      Decimal?     @db.Decimal(18, 2)
+  CartItems  CartItems[]
+  OrderItems OrderItems[]
+  Products   Products     @relation(fields: [ProductId], references: [ProductId], onUpdate: NoAction, map: "FK_ProductVariant_Product")
+
+  @@unique([ProductId, Size, Color], map: "UQ_Product_Size_Color")
 }
