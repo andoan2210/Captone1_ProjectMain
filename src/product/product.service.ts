@@ -91,25 +91,31 @@ export class ProductService {
         Sold: number;
       }[]
     >`
-      SELECT TOP (${limit})
-        p.ProductId,
-        p.ProductName,
-        p.Price,
-        p.ThumbnailUrl,
-        p.CreatedAt,
-        c.CategoryName,
-        SUM(oi.Quantity) as Sold
-      FROM OrderItems oi
-      JOIN Products p ON p.ProductId = oi.ProductId AND p.IsActive = 1 AND p.IsDeleted = 0
-      LEFT JOIN Categories c ON c.CategoryId = p.CategoryId
-      GROUP BY 
-        p.ProductId,
-        p.ProductName,
-        p.Price,
-        p.ThumbnailUrl,
-        p.CreatedAt,
-        c.CategoryName
-      ORDER BY Sold DESC
+    SELECT TOP (${limit})
+      p.ProductId,
+      p.ProductName,
+      p.Price,
+      p.ThumbnailUrl,
+      p.CreatedAt,
+      c.CategoryName,
+      SUM(oi.Quantity) as Sold
+    FROM OrderItems oi
+    JOIN ProductVariants pv 
+      ON pv.VariantId = oi.VariantId
+    JOIN Products p 
+      ON p.ProductId = pv.ProductId
+      AND p.IsActive = 1 
+      AND p.IsDeleted = 0
+    LEFT JOIN Categories c 
+      ON c.CategoryId = p.CategoryId
+    GROUP BY 
+      p.ProductId,
+      p.ProductName,
+      p.Price,
+      p.ThumbnailUrl,
+      p.CreatedAt,
+      c.CategoryName
+    ORDER BY Sold DESC
     `;
 
     if (!products || products.length === 0) {
