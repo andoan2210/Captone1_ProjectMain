@@ -1,15 +1,21 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import { Body,Controller ,Delete ,Get,Param,Patch,Post,Query,Req, UseGuards,} from '@nestjs/common';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
+import { RolesGuard } from 'src/auth/passport/roles.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/enums/role.enum';
 
 @Controller('product')
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
-    create(@Body() createProductDto: CreateProductDto) {
-      return this.productService.create(createProductDto);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
+  create(@Req() req, @Body() createProductDto: CreateProductDto) {
+    return this.productService.create(req.user.userId, createProductDto);
   }
 
   @Get()
@@ -40,7 +46,11 @@ export class ProductController {
   }
 
   @Get('category-product')
-  getByCategory( @Query('categoryId') categoryId: number, @Query('page') page: number ,@Query('limit') limit: number) {
+  getByCategory(
+    @Query('categoryId') categoryId: number,
+    @Query('page') page: number,
+    @Query('limit') limit: number,
+  ) {
     const limitNumber = limit || 5;
     const pageNumber = page || 1;
     return this.productService.getByCategory(categoryId, pageNumber, limitNumber);
