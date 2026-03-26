@@ -1,3 +1,5 @@
+//Sử dụng NestFactory để khởi tạo ứng dụng
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
