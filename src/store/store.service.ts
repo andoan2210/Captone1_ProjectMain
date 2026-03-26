@@ -19,7 +19,6 @@ export class StoreService {
   findAll() {
     return `This action returns all store`;
   }
-
   // Lấy thông tin cửa hàng của user đang đăng nhập
   async getMyStore(userId: number) {
     const store = await this.prisma.stores.findFirst({
@@ -165,8 +164,10 @@ async getStoreByBest(limit: number) {
         ON p.StoreId = s.StoreId
         AND p.IsActive = 1
         AND p.IsDeleted = 0
+      LEFT JOIN ProductVariants pv 
+        ON pv.ProductId = p.ProductId
       LEFT JOIN OrderItems oi 
-        ON oi.ProductId = p.ProductId
+        ON oi.VariantId = pv.VariantId
       WHERE s.IsActive = 1
       GROUP BY 
         s.StoreId,

@@ -178,24 +178,24 @@ export class ProductService {
   }
 
   async getBestSellerProduct(limit: number) {
-    try {
-      const cacheKey = `product:best-seller:${limit}`;
-      const cached = await this.redis.get(cacheKey);
-      if (cached) {
-        this.logger.log('Product from cache');
-        return JSON.parse(cached);
-      }
-      const products = await this.prisma.$queryRaw<
-        {
-          ProductId: number;
-          ProductName: string;
-          Price: number;
-          ThumbnailUrl: string;
-          CreatedAt: Date;
-          CategoryName: string;
-          Sold: number;
-        }[]
-      >`
+  try {
+    const cacheKey = `product:best-seller:${limit}`;
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      this.logger.log('Product from cache');
+      return JSON.parse(cached);
+    }
+    const products = await this.prisma.$queryRaw<
+      {
+        ProductId: number;
+        ProductName: string;
+        Price: number;
+        ThumbnailUrl: string;
+        CreatedAt: Date;
+        CategoryName: string;
+        Sold: number;
+      }[]
+    >`
       SELECT TOP (${limit})
         p.ProductId,
         p.ProductName,
