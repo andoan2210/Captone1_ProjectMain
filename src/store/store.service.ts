@@ -19,7 +19,6 @@ export class StoreService {
   findAll() {
     return `This action returns all store`;
   }
-
   // Lấy thông tin cửa hàng của user đang đăng nhập
   async getMyStore(userId: number) {
     const store = await this.prisma.stores.findFirst({
