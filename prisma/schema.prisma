@@ -8,20 +8,18 @@ datasource db {
 }
 
 model AI_Recommendations {
-  RecommendationId Int       @id(map: "PK__AI_Recom__AA15BEE486B6D322") @default(autoincrement())
+  RecommendationId Int       @id(map: "PK__AI_Recom__AA15BEE406FF0D21") @default(autoincrement())
   UserId           Int
   ProductId        Int
   ConfidenceScore  Float?
   Reason           String?   @db.NVarChar(500)
-  CreatedAt        DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__AI_Recomm__Creat__123EB7A3")
+  CreatedAt        DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__AI_Recomm__Creat__787EE5A0")
   Products         Products  @relation(fields: [ProductId], references: [ProductId], onUpdate: NoAction, map: "FK__AI_Recomm__Produ__14270015")
   Users            Users     @relation(fields: [UserId], references: [UserId], onUpdate: NoAction, map: "FK__AI_Recomm__UserI__1332DBDC")
-
-  @@index([UserId], map: "IX_AI_User")
 }
 
 model CartItems {
-  CartItemId      Int             @id(map: "PK__CartItem__488B0B0A0D4927D0") @default(autoincrement())
+  CartItemId      Int             @id(map: "PK__CartItem__488B0B0A46C6CE3F") @default(autoincrement())
   CartId          Int
   Quantity        Int
   VariantId       Int
@@ -32,38 +30,38 @@ model CartItems {
 }
 
 model Carts {
-  CartId    Int         @id(map: "PK__Carts__51BCD7B71CC2E519") @default(autoincrement())
-  UserId    Int         @unique(map: "UQ__Carts__1788CC4DEB5B4714")
-  CreatedAt DateTime?   @default(dbgenerated("sysdatetime()"), map: "DF__Carts__CreatedAt__6754599E")
+  CartId    Int         @id(map: "PK__Carts__51BCD7B7855B5023") @default(autoincrement())
+  UserId    Int         @unique(map: "UQ__Carts__1788CC4D1197C721")
+  CreatedAt DateTime?   @default(dbgenerated("sysdatetime()"), map: "DF__Carts__CreatedAt__797309D9")
   CartItems CartItems[]
   Users     Users       @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK_Cart_User")
 }
 
 model Categories {
-  CategoryId       Int          @id(map: "PK__Categori__19093A0B3E6CB62B") @default(autoincrement())
+  CategoryId       Int          @id(map: "PK__Categori__19093A0BBD0E7783") @default(autoincrement())
   CategoryName     String       @db.NVarChar(150)
   ParentId         Int?
-  IsActive         Boolean?     @default(true, map: "DF__Categorie__IsAct__571DF1D5")
+  IsActive         Boolean?     @default(true, map: "DF__Categorie__IsAct__7A672E12")
   Categories       Categories?  @relation("CategoriesToCategories", fields: [ParentId], references: [CategoryId], onDelete: NoAction, onUpdate: NoAction, map: "FK_Category_Parent")
   other_Categories Categories[] @relation("CategoriesToCategories")
   Products         Products[]
 }
 
 model Conversations {
-  ConversationId                         Int        @id(map: "PK__Conversa__C050D8775762077B") @default(autoincrement())
+  ConversationId                         Int        @id(map: "PK__Conversa__C050D87796996CAC") @default(autoincrement())
   ClientId                               Int
   ShopOwnerId                            Int
-  CreatedAt                              DateTime?  @default(dbgenerated("sysdatetime()"), map: "DF__Conversat__Creat__17036CC0")
+  CreatedAt                              DateTime?  @default(dbgenerated("sysdatetime()"), map: "DF__Conversat__Creat__7B5B524B")
   Users_Conversations_ClientIdToUsers    Users      @relation("Conversations_ClientIdToUsers", fields: [ClientId], references: [UserId], onUpdate: NoAction, map: "FK__Conversat__Clien__17F790F9")
   Users_Conversations_ShopOwnerIdToUsers Users      @relation("Conversations_ShopOwnerIdToUsers", fields: [ShopOwnerId], references: [UserId], onUpdate: NoAction, map: "FK__Conversat__ShopO__18EBB532")
   Messages                               Messages[]
 }
 
 model Invoices {
-  InvoiceId      Int       @id(map: "PK__Invoices__D796AAB5CD39D16D") @default(autoincrement())
-  OrderId        Int       @unique(map: "UQ__Invoices__C3905BCE182B0703")
-  InvoiceNumber  String    @unique(map: "UQ__Invoices__D776E98159519988") @db.NVarChar(50)
-  IssueDate      DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__Invoices__IssueD__2739D489")
+  InvoiceId      Int       @id(map: "PK__Invoices__D796AAB5FEBA109D") @default(autoincrement())
+  OrderId        Int       @unique(map: "UQ__Invoices__C3905BCE9ABAC8DC")
+  InvoiceNumber  String    @unique(map: "UQ__Invoices__D776E98165028D43") @db.NVarChar(50)
+  IssueDate      DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__Invoices__IssueD__7C4F7684")
   TotalAmount    Decimal   @db.Decimal(18, 2)
   BillingName    String    @db.NVarChar(150)
   BillingPhone   String?   @db.NVarChar(20)
@@ -74,29 +72,27 @@ model Invoices {
 }
 
 model Messages {
-  MessageId      Int           @id(map: "PK__Messages__C87C0C9CDA4E0B58") @default(autoincrement())
+  MessageId      Int           @id(map: "PK__Messages__C87C0C9C637833F6") @default(autoincrement())
   ConversationId Int
   SenderId       Int
   MessageContent String        @db.NVarChar(Max)
-  SentAt         DateTime?     @default(dbgenerated("sysdatetime()"), map: "DF__Messages__SentAt__1BC821DD")
+  SentAt         DateTime?     @default(dbgenerated("sysdatetime()"), map: "DF__Messages__SentAt__7D439ABD")
   Conversations  Conversations @relation(fields: [ConversationId], references: [ConversationId], onDelete: Cascade, onUpdate: NoAction, map: "FK__Messages__Conver__1CBC4616")
   Users          Users         @relation(fields: [SenderId], references: [UserId], onUpdate: NoAction, map: "FK__Messages__Sender__1DB06A4F")
-
-  @@index([ConversationId], map: "IX_Message_Conversation")
 }
 
 model Notifications {
-  NotificationId Int       @id(map: "PK__Notifica__20CF2E129983ADF7") @default(autoincrement())
+  NotificationId Int       @id(map: "PK__Notifica__20CF2E1203CFB0FA") @default(autoincrement())
   UserId         Int
   Title          String?   @db.NVarChar(200)
   Content        String?   @db.NVarChar(Max)
-  IsRead         Boolean?  @default(false, map: "DF__Notificat__IsRea__208CD6FA")
-  CreatedAt      DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__Notificat__Creat__2180FB33")
+  IsRead         Boolean?  @default(false, map: "DF__Notificat__IsRea__7E37BEF6")
+  CreatedAt      DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__Notificat__Creat__7F2BE32F")
   Users          Users     @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK__Notificat__UserI__22751F6C")
 }
 
 model OrderItems {
-  OrderItemId     Int             @id(map: "PK__OrderIte__57ED0681C0DC3108") @default(autoincrement())
+  OrderItemId     Int             @id(map: "PK__OrderIte__57ED0681C50A4C41") @default(autoincrement())
   OrderId         Int
   Quantity        Int
   UnitPrice       Decimal         @db.Decimal(18, 2)
@@ -106,14 +102,14 @@ model OrderItems {
 }
 
 model Orders {
-  OrderId         Int             @id(map: "PK__Orders__C3905BCF7F568457") @default(autoincrement())
+  OrderId         Int             @id(map: "PK__Orders__C3905BCF05FD7821") @default(autoincrement())
   UserId          Int
   StoreId         Int
   TotalAmount     Decimal         @db.Decimal(18, 2)
   OrderStatus     String          @db.NVarChar(50)
   PaymentStatus   String          @db.NVarChar(50)
   ShippingAddress String          @db.NVarChar(300)
-  CreatedAt       DateTime?       @default(dbgenerated("sysdatetime()"), map: "DF__Orders__CreatedA__72C60C4A")
+  CreatedAt       DateTime?       @default(dbgenerated("sysdatetime()"), map: "DF__Orders__CreatedA__00200768")
   UpdatedAt       DateTime?
   AddressId       Int?
   Invoices        Invoices?
@@ -123,13 +119,10 @@ model Orders {
   Users           Users           @relation(fields: [UserId], references: [UserId], onUpdate: NoAction, map: "FK_Order_User")
   OrderVouchers   OrderVouchers[]
   Payments        Payments[]
-
-  @@index([StoreId], map: "IX_Order_Store")
-  @@index([UserId], map: "IX_Order_User")
 }
 
 model OrderVouchers {
-  OrderVoucherId Int      @id(map: "PK__OrderVou__5B3AFED444E27B7D") @default(autoincrement())
+  OrderVoucherId Int      @id(map: "PK__OrderVou__5B3AFED4DD233788") @default(autoincrement())
   OrderId        Int
   VoucherId      Int
   Orders         Orders   @relation(fields: [OrderId], references: [OrderId], onDelete: Cascade, onUpdate: NoAction, map: "FK_OrderVoucher_Order")
@@ -137,7 +130,7 @@ model OrderVouchers {
 }
 
 model Payments {
-  PaymentId          Int                 @id(map: "PK__Payments__9B556A38207DF32E") @default(autoincrement())
+  PaymentId          Int                 @id(map: "PK__Payments__9B556A38C90BE055") @default(autoincrement())
   OrderId            Int
   PaymentMethod      String              @db.NVarChar(50)
   TransactionCode    String?             @db.NVarChar(150)
@@ -151,23 +144,23 @@ model Payments {
 }
 
 model ProductImages {
-  ImageId   Int      @id(map: "PK__ProductI__7516F70CCE228D9B") @default(autoincrement())
+  ImageId   Int      @id(map: "PK__ProductI__7516F70C5D2179DE") @default(autoincrement())
   ProductId Int
   ImageUrl  String   @db.NVarChar(500)
   Products  Products @relation(fields: [ProductId], references: [ProductId], onDelete: Cascade, onUpdate: NoAction, map: "FK_ProductImage_Product")
 }
 
 model Products {
-  ProductId          Int                  @id(map: "PK__Products__B40CC6CD75431AF1") @default(autoincrement())
+  ProductId          Int                  @id(map: "PK__Products__B40CC6CD684BF34E") @default(autoincrement())
   StoreId            Int
   CategoryId         Int?
   ProductName        String               @db.NVarChar(200)
   Description        String?              @db.NVarChar(Max)
   Price              Decimal              @db.Decimal(18, 2)
   ThumbnailUrl       String?              @db.NVarChar(500)
-  IsActive           Boolean?             @default(true, map: "DF__Products__IsActi__5CD6CB2B")
-  IsDeleted          Boolean?             @default(false, map: "DF__Products__IsDele__5DCAEF64")
-  CreatedAt          DateTime?            @default(dbgenerated("sysdatetime()"), map: "DF__Products__Create__5EBF139D")
+  IsActive           Boolean?             @default(true, map: "DF__Products__IsActi__01142BA1")
+  IsDeleted          Boolean?             @default(false, map: "DF__Products__IsDele__02084FDA")
+  CreatedAt          DateTime?            @default(dbgenerated("sysdatetime()"), map: "DF__Products__Create__02FC7413")
   UpdatedAt          DateTime?
   AI_Recommendations AI_Recommendations[]
   ProductImages      ProductImages[]
@@ -175,59 +168,46 @@ model Products {
   Stores             Stores               @relation(fields: [StoreId], references: [StoreId], onUpdate: NoAction, map: "FK_Product_Store")
   ProductTryHistory  ProductTryHistory[]
   ProductVariants    ProductVariants[]
-
-  @@index([CategoryId], map: "IX_Product_Category")
-  @@index([StoreId], map: "IX_Product_Store")
 }
 
 model ProductTryHistory {
-  TryId       Int       @id(map: "PK__ProductT__BBBDD7EE8CD821D3") @default(autoincrement())
+  TryId       Int       @id(map: "PK__ProductT__BBBDD7EEA7FCB7E8") @default(autoincrement())
   UserId      Int
   ProductId   Int
   TryImageUrl String?   @db.NVarChar(500)
-  CreatedAt   DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__ProductTr__Creat__0D7A0286")
+  CreatedAt   DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__ProductTr__Creat__03F0984C")
   Products    Products  @relation(fields: [ProductId], references: [ProductId], onUpdate: NoAction, map: "FK__ProductTr__Produ__0F624AF8")
   Users       Users     @relation(fields: [UserId], references: [UserId], onUpdate: NoAction, map: "FK__ProductTr__UserI__0E6E26BF")
 }
 
 model Stores {
-  StoreId     Int        @id(map: "PK__Stores__3B82F101C3CF8C9A") @default(autoincrement())
-  OwnerId     Int        @unique(map: "UQ__Stores__819385B9DDA8C462")
+  StoreId     Int        @id(map: "PK__Stores__3B82F101FE8D8B9D") @default(autoincrement())
+  OwnerId     Int        @unique(map: "UQ__Stores__819385B9B6648E63")
   StoreName   String     @db.NVarChar(150)
   Description String?    @db.NVarChar(Max)
   LogoUrl     String?    @db.NVarChar(500)
-  IsActive    Boolean?   @default(true, map: "DF__Stores__IsActive__5165187F")
-  IsDeleted   Boolean?   @default(false, map: "DF__Stores__IsDelete__52593CB8")
-  CreatedAt   DateTime?  @default(dbgenerated("sysdatetime()"), map: "DF__Stores__CreatedA__534D60F1")
+  IsActive    Boolean?   @default(true, map: "DF__Stores__IsActive__04E4BC85")
+  IsDeleted   Boolean?   @default(false, map: "DF__Stores__IsDelete__05D8E0BE")
+  CreatedAt   DateTime?  @default(dbgenerated("sysdatetime()"), map: "DF__Stores__CreatedA__06CD04F7")
   Orders      Orders[]
   Products    Products[]
   Users       Users      @relation(fields: [OwnerId], references: [UserId], onUpdate: NoAction, map: "FK_Store_User")
   Vouchers    Vouchers[]
 }
 
-model sysdiagrams {
-  name         String @db.NVarChar(128)
-  principal_id Int
-  diagram_id   Int    @id(map: "PK__sysdiagr__C2B05B6187769E6B") @default(autoincrement())
-  version      Int?
-  definition   Bytes?
-
-  @@unique([principal_id, name], map: "UK_principal_name")
-}
-
 model Users {
-  UserId                                         Int                  @id(map: "PK__Users__1788CC4C708B2323") @default(autoincrement())
+  UserId                                         Int                  @id(map: "PK__Users__1788CC4CD4696174") @default(autoincrement())
   FullName                                       String               @db.NVarChar(150)
-  Email                                          String               @unique(map: "UQ__Users__A9D10534F3BD59B4") @db.NVarChar(150)
+  Email                                          String               @unique(map: "UQ__Users__A9D1053409B5A26F") @db.NVarChar(150)
   PasswordHash                                   String?              @db.NVarChar(255)
   Phone                                          String?              @db.NVarChar(20)
   AvatarUrl                                      String?              @db.NVarChar(500)
   Role                                           String               @db.NVarChar(20)
-  IsActive                                       Boolean?             @default(true, map: "DF__Users__IsActive__4BAC3F29")
-  IsDeleted                                      Boolean?             @default(false, map: "DF__Users__IsDeleted__4CA06362")
-  CreatedAt                                      DateTime?            @default(dbgenerated("sysdatetime()"), map: "DF__Users__CreatedAt__4D94879B")
+  IsActive                                       Boolean?             @default(true, map: "DF__Users__IsActive__0B91BA14")
+  IsDeleted                                      Boolean?             @default(false, map: "DF__Users__IsDeleted__0C85DE4D")
+  CreatedAt                                      DateTime?            @default(dbgenerated("sysdatetime()"), map: "DF__Users__CreatedAt__0D7A0286")
   UpdatedAt                                      DateTime?
-  AuthProvider                                   String               @default("local", map: "DF__Users__AuthProvi__3A4CA8FD") @db.NVarChar(20)
+  AuthProvider                                   String               @default("local", map: "DF__Users__AuthProvi__0E6E26BF") @db.NVarChar(20)
   ProviderId                                     String?              @db.NVarChar(255)
   DateOfBirth                                    DateTime?            @db.Date
   Gender                                         String?              @db.NVarChar(10)
@@ -245,19 +225,19 @@ model Users {
 }
 
 model Vouchers {
-  VoucherId       Int             @id(map: "PK__Vouchers__3AEE792138E55619") @default(autoincrement())
+  VoucherId       Int             @id(map: "PK__Vouchers__3AEE7921D315D05D") @default(autoincrement())
   StoreId         Int
-  Code            String          @unique(map: "UQ__Vouchers__A25C5AA7F0AA31B4") @db.NVarChar(50)
+  Code            String          @unique(map: "UQ__Vouchers__A25C5AA764070A84") @db.NVarChar(50)
   DiscountPercent Int?
   Quantity        Int
   ExpiredDate     DateTime?
-  IsActive        Boolean?        @default(true, map: "DF__Vouchers__IsActi__05D8E0BE")
+  IsActive        Boolean?        @default(true, map: "DF__Vouchers__IsActi__0F624AF8")
   OrderVouchers   OrderVouchers[]
   Stores          Stores          @relation(fields: [StoreId], references: [StoreId], onUpdate: NoAction, map: "FK_Voucher_Store")
 }
 
 model UserAddresses {
-  AddressId     Int       @id(map: "PK__UserAddr__091C2AFBE10466DC") @default(autoincrement())
+  AddressId     Int       @id(map: "PK__UserAddr__091C2AFBF3104FFD") @default(autoincrement())
   UserId        Int
   FullName      String    @db.NVarChar(150)
   Phone         String    @db.NVarChar(20)
@@ -265,27 +245,27 @@ model UserAddresses {
   District      String    @db.NVarChar(100)
   Ward          String    @db.NVarChar(100)
   DetailAddress String    @db.NVarChar(300)
-  IsDefault     Boolean?  @default(false, map: "DF__UserAddre__IsDef__4F47C5E3")
-  CreatedAt     DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__UserAddre__Creat__503BEA1C")
+  IsDefault     Boolean?  @default(false, map: "DF__UserAddre__IsDef__07C12930")
+  CreatedAt     DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__UserAddre__Creat__08B54D69")
   Orders        Orders[]
   Users         Users     @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK__UserAddre__UserI__51300E55")
 }
 
 model UserPaymentMethods {
-  PaymentMethodId Int        @id(map: "PK__UserPaym__DC31C1D3E0179F0B") @default(autoincrement())
+  PaymentMethodId Int        @id(map: "PK__UserPaym__DC31C1D33D1F626B") @default(autoincrement())
   UserId          Int
   Type            String     @db.NVarChar(50)
   Provider        String?    @db.NVarChar(50)
   AccountNumber   String?    @db.NVarChar(100)
   CardHolderName  String?    @db.NVarChar(150)
-  IsDefault       Boolean?   @default(false, map: "DF__UserPayme__IsDef__540C7B00")
-  CreatedAt       DateTime?  @default(dbgenerated("sysdatetime()"), map: "DF__UserPayme__Creat__55009F39")
+  IsDefault       Boolean?   @default(false, map: "DF__UserPayme__IsDef__09A971A2")
+  CreatedAt       DateTime?  @default(dbgenerated("sysdatetime()"), map: "DF__UserPayme__Creat__0A9D95DB")
   Payments        Payments[]
   Users           Users      @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK__UserPayme__UserI__55F4C372")
 }
 
 model ProductVariants {
-  VariantId  Int          @id(map: "PK__ProductV__0EA23384445F38E0") @default(autoincrement())
+  VariantId  Int          @id(map: "PK__ProductV__0EA23384368AE703") @default(autoincrement())
   ProductId  Int
   Size       String       @db.NVarChar(10)
   Color      String?      @db.NVarChar(50)

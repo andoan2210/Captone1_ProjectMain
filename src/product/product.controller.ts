@@ -30,6 +30,12 @@ export class ProductController {
     return this.productService.remove(req.user.userId, id);
   }
 
+  @Get('detail/:id')
+  getDetailProduct(@Param('id') id: number) {
+    return this.productService.getDetailProduct(id);
+  }
+
+
   @Get('new')
   getNewProduct(@Query('limit') limit: number) {
     const limitNumber = limit || 5;

@@ -208,6 +208,79 @@ export class ProductService {
     return `This action updates a #${id} product`;
   }
 
+  async getDetailProduct(id: number) {
+    try{
+      const product = await this.prisma.products.findFirst({
+        where: {
+          ProductId: id,
+          IsActive: true,
+          IsDeleted: false,
+        },
+        select: {
+          ProductId: true,
+          ProductName: true,
+          Price: true,
+          ThumbnailUrl: true,
+          Description :true,
+          Categories: {
+            select: { CategoryName: true },
+          },
+          ProductImages: {
+            select : {
+              ImageUrl : true,
+            }
+          },
+          ProductVariants : {
+            select : {
+              VariantId : true,
+              Size : true,
+              Color : true,
+              Stock : true,
+              Price : true,
+            }
+          },
+        },
+      });
+
+      if(!product){
+        this.logger.error('Product not found');
+        return null;
+      }
+
+      const sold = await this.prisma.orderItems.aggregate({
+          _sum: {
+            Quantity: true,
+          },
+          where: {
+            ProductVariants: {
+              ProductId: id,
+            },
+          },
+      });
+
+      this.logger.log(product);
+      return {
+        id: product.ProductId,
+        name: product.ProductName,
+        price: product.Price,
+        thumbnail: product.ThumbnailUrl,
+        categoryName: product.Categories?.CategoryName ?? null,
+        images: product.ProductImages.map(img => img.ImageUrl),
+        variants: product.ProductVariants.map(variant => ({
+          variantId: variant.VariantId,
+          size: variant.Size,
+          color: variant.Color,
+          stock: variant.Stock,
+          price: variant.Price,
+        })),
+        sold: sold._sum.Quantity || 0,
+      };
+    }catch(error){
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
   async remove(ownerUserId: number, productId: number) {
     try {
       const store = await this.prisma.stores.findFirst({
