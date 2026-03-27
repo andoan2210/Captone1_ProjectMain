@@ -16,13 +16,6 @@ export class OrderController {
     return this.orderService.create(createOrderDto);
   }
 
-  @Get('order-shop')
-  @Roles(Role.SHOP_OWNER)
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  getOrderForShop(@Request() req){
-    return this.orderService.getOrderForShop(req.user.userId);
-  }
-
   @Get()
   findAll() {
     return this.orderService.findAll();
