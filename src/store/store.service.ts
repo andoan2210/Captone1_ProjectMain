@@ -4,13 +4,15 @@ import { UpdateStoreDto } from './dto/update-store.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Logger } from 'nestjs-pino';
 import { RedisService } from 'src/shared/service/redis.service';
+import { UploadService } from 'src/upload/upload.service';
 
 @Injectable()
 export class StoreService {
   constructor(
     private readonly prisma : PrismaService,
     private readonly logger : Logger,
-    private readonly redis : RedisService
+    private readonly redis : RedisService,
+    private readonly uploadService : UploadService
   ){}
   create(createStoreDto: CreateStoreDto) {
     return 'This action adds a new store';
@@ -62,7 +64,13 @@ export class StoreService {
     };
   }
 
-async updateMyStore(userId: number, updateStoreDto: UpdateStoreDto) {
+ async updateMyStore(
+  userId: number,
+  dto: UpdateStoreDto,
+  file?: Express.Multer.File,
+) {
+  try {
+    // Lấy store của user
     const store = await this.prisma.stores.findFirst({
       where: {
         OwnerId: userId,
@@ -74,66 +82,45 @@ async updateMyStore(userId: number, updateStoreDto: UpdateStoreDto) {
       throw new NotFoundException('Store not found');
     }
 
-    const dataToUpdate: {
-      StoreName?: string;
-      Description?: string | null;
-      LogoUrl?: string | null;
-      IsActive?: boolean;
-    } = {};
+    let logoUrl = store.LogoUrl;
 
-    if (updateStoreDto.storeName !== undefined) {
-      dataToUpdate.StoreName = updateStoreDto.storeName.trim();
+    // Upload ảnh (nếu có)
+    if (file) {
+      const newLogo = await this.uploadService.uploadImage(file, 'logo');
+
+      // delete ảnh cũ (nếu có)
+      if (store.LogoUrl) {
+        try{
+          await this.uploadService.deleteFile(store.LogoUrl);
+        }catch(error){
+          this.logger.error(error);
+        }
+      }
+
+      logoUrl = newLogo;
     }
 
-    if (updateStoreDto.description !== undefined) {
-      dataToUpdate.Description = updateStoreDto.description.trim();
-    }
-
-    if (updateStoreDto.logoUrl !== undefined) {
-      dataToUpdate.LogoUrl = updateStoreDto.logoUrl.trim();
-    }
-
-    if (updateStoreDto.isActive !== undefined) {
-      dataToUpdate.IsActive = updateStoreDto.isActive;
-    }
-
-    if (Object.keys(dataToUpdate).length === 0) {
-      throw new BadRequestException('No valid fields to update');
-    }
-
+    // Update DB
     const updatedStore = await this.prisma.stores.update({
       where: {
         StoreId: store.StoreId,
       },
-      data: dataToUpdate,
-      select: {
-        StoreId: true,
-        OwnerId: true,
-        StoreName: true,
-        Description: true,
-        LogoUrl: true,
-        IsActive: true,
-        IsDeleted: true,
-        CreatedAt: true,
+      data: {
+        ...(dto.storeName && { StoreName: dto.storeName }),
+        ...(dto.description && { Description: dto.description }),
+        ...(logoUrl && { LogoUrl: logoUrl }),
       },
     });
 
-    await this.redis.del(`store:me:${userId}`);
-
+    this.logger.log(`Update store information successfully`);
     return {
       message: 'Update store information successfully',
-      data: {
-        storeId: updatedStore.StoreId,
-        ownerId: updatedStore.OwnerId,
-        storeName: updatedStore.StoreName,
-        description: updatedStore.Description,
-        logoUrl: updatedStore.LogoUrl,
-        isActive: updatedStore.IsActive,
-        isDeleted: updatedStore.IsDeleted,
-        createdAt: updatedStore.CreatedAt,
-      },
     };
+  } catch (error) {
+    this.logger.error(error);
+    throw new BadRequestException('Failed to update store information');
   }
+}
 
 async getStoreByBest(limit: number) {
   try {

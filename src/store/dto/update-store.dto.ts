@@ -10,12 +10,4 @@ export class UpdateStoreDto {
   @IsString()
   description?: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  logoUrl?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
 }
