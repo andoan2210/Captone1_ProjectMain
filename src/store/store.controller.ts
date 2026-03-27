@@ -9,6 +9,8 @@ import {
   Request,
   UseGuards,
   Query,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import { StoreService } from './store.service';
 import { CreateStoreDto } from './dto/create-store.dto';
@@ -17,6 +19,7 @@ import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/passport/roles.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/enums/role.enum';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @Controller('store')
 export class StoreController {
@@ -29,13 +32,21 @@ export class StoreController {
     return this.storeService.getMyStore(req.user.userId);
   }
 
+  @UseInterceptors(FileInterceptor('logo'))
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SHOP_OWNER)
   @Patch('me')
-  updateMyStore(@Request() req, @Body() updateStoreDto: UpdateStoreDto) {
-    return this.storeService.updateMyStore(req.user.userId, updateStoreDto);
+  updateMyStore(
+    @Request() req,
+    @Body() updateStoreDto: UpdateStoreDto,
+    @UploadedFile() logo: Express.Multer.File,
+  ) {
+    return this.storeService.updateMyStore(
+      req.user.userId,
+      updateStoreDto,
+      logo,
+    );
   }
-
   @Post()
   create(@Body() createStoreDto: CreateStoreDto) {
     return this.storeService.create(createStoreDto);
