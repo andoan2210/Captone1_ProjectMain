@@ -1,5 +1,3 @@
-//Sử dụng NestFactory để khởi tạo ứng dụng
-
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
@@ -15,11 +13,19 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api', { exclude: [''] });
 
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+
+  app.enableCors({
+    origin: 'http://localhost:5173',
+    credentials: true,
+  });
+
   await app.listen(port);
 }
 bootstrap();
