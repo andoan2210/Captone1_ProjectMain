@@ -4,6 +4,7 @@ import { StoreController } from './store.controller';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { UploadModule } from 'src/upload/upload.module';
 
+// `file khai báo các module sẽ có của feature store.`
 
 @Module({
   controllers: [StoreController],
