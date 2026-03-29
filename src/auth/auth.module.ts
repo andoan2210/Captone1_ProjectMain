@@ -31,5 +31,7 @@ import { GoogleStrategy } from './passport/google.strategy';
             PassportModule,
             ConfigModule.forFeature(googleOAuthConfig),
   ],
+  
+  exports :[JwtModule],
 })
 export class AuthModule {}
