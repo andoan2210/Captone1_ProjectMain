@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { StoreController } from './store.controller';
 import { StoreService } from './store.service';
 
+// Đây là file unit test cho controller.
 describe('StoreController', () => {
   let controller: StoreController;
 
