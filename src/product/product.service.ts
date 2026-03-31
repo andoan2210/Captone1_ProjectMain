@@ -530,6 +530,86 @@ export class ProductService {
     }
   }
 
+  async getMyProducts(ownerUserId: number) {
+    try {
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          OwnerId: ownerUserId,
+          IsDeleted: false,
+        },
+        select: {
+          StoreId: true,
+        },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      const products = await this.prisma.products.findMany({
+        where: {
+          StoreId: store.StoreId,
+          IsDeleted: false,
+        },
+        orderBy: {
+          UpdatedAt: 'desc',
+        },
+        select: {
+          ProductId: true,
+          ProductName: true,
+          Price: true,
+          ThumbnailUrl: true,
+          IsActive: true,
+          UpdatedAt: true,
+          CreatedAt: true,
+          Categories: {
+            select: {
+              CategoryId: true,
+              CategoryName: true,
+            },
+          },
+          ProductVariants: {
+            select: {
+              Stock: true,
+            },
+          },
+        },
+      });
+
+      const result = products.map((product) => {
+        const totalStock = product.ProductVariants.reduce(
+          (sum, variant) => sum + (variant.Stock ?? 0),
+          0,
+        );
+
+        return {
+          productId: product.ProductId,
+          productName: product.ProductName,
+          price: Number(product.Price),
+          thumbnailUrl: product.ThumbnailUrl,
+          stock: totalStock,
+          isActive: product.IsActive ?? false,
+          updatedAt: product.UpdatedAt,
+          createdAt: product.CreatedAt,
+          category: product.Categories
+            ? {
+                categoryId: product.Categories.CategoryId,
+                categoryName: product.Categories.CategoryName,
+              }
+            : null,
+        };
+      });
+
+      return {
+        message: 'Get my products successfully',
+        data: result,
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
   findAll() {
     return `This action returns all product`;
   }
