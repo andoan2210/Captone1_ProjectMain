@@ -54,6 +54,13 @@ export class ProductController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SHOP_OWNER)
+  @Get('my-products')
+  getMyProducts(@Req() req) {
+    return this.productService.getMyProducts(req.user.userId);
+  }
+  
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
   @Patch(':id')
   @UseInterceptors(
     FileFieldsInterceptor([
