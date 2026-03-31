@@ -1,4 +1,18 @@
-import { Body,Controller ,Delete ,Get,Param,Patch,Post,Query,Req, UseGuards,ParseIntPipe, UseInterceptors,UploadedFiles} from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+  ParseIntPipe,
+  UseInterceptors,
+  UploadedFiles,
+} from '@nestjs/common';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -6,13 +20,13 @@ import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/passport/roles.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/enums/role.enum';
-import{ FileFieldsInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 
 @Controller('product')
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
- @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SHOP_OWNER)
   @Post()
   @UseInterceptors(
@@ -33,17 +47,38 @@ export class ProductController {
     return this.productService.create(req.user.userId, createProductDto, files);
   }
 
-
   @Get()
   findAll() {
     return this.productService.findAll();
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
-    return this.productService.update(+id, updateProductDto);
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'thumbnail', maxCount: 1 },
+      { name: 'images', maxCount: 10 },
+    ]),
+  )
+  update(
+    @Req() req,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateProductDto: UpdateProductDto,
+    @UploadedFiles()
+    files: {
+      thumbnail?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+    },
+  ) {
+    return this.productService.update(
+      req.user.userId,
+      id,
+      updateProductDto,
+      files,
+    );
   }
-  
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SHOP_OWNER)
   @Delete(':id')
@@ -55,7 +90,6 @@ export class ProductController {
   getDetailProduct(@Param('id') id: number) {
     return this.productService.getDetailProduct(id);
   }
-
 
   @Get('new')
   getNewProduct(@Query('limit') limit: number) {
