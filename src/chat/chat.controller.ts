@@ -1,3 +1,4 @@
+
 import { Controller, Get, Post, Body, Patch, Param, Delete, Req, Request, Query } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { CreateChatDto } from './dto/create-chat.dto';
@@ -45,6 +46,7 @@ export class ChatController {
       cursor ? Number(cursor) : undefined,
       limit ? Number(limit) : 20,
     );
+
   }
 
   @Get()

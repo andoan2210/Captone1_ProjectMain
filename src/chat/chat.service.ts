@@ -96,6 +96,7 @@ export class ChatService {
 
       if (!isValid) throw new Error("Forbidden");
 
+
       limit = Math.min(limit, 50);
       
       this.logger.log(`Cursor found: ${cursor}`);
@@ -119,7 +120,6 @@ export class ChatService {
       data : reversed,
       nextCursor: nextCursor,
     }
-
 
     }catch(error){
       this.logger.error(error);
