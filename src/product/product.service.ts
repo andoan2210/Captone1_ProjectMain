@@ -264,6 +264,7 @@ export class ProductService {
         name: product.ProductName,
         price: product.Price,
         thumbnail: product.ThumbnailUrl,
+        description: product.Description,
         categoryName: product.Categories?.CategoryName ?? null,
         images: product.ProductImages.map(img => img.ImageUrl),
         variants: product.ProductVariants.map(variant => ({

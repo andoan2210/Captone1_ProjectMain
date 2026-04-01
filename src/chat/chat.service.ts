@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -90,16 +90,37 @@ export class ChatService {
   }
   
   // lấy lịch sử chat
-  async getMessages(userId: number, conversationId: number) {
+  async getMessages(userId: number, conversationId: number , cursor? :number , limit:number = 20) {
     try{
       const isValid = await this.isUserInConversation(userId, conversationId);
 
       if (!isValid) throw new Error("Forbidden");
+
+      limit = Math.min(limit, 50);
+      
+      this.logger.log(`Cursor found: ${cursor}`);
+      this.logger.log(`Limit found: ${limit}`);
       this.logger.log(`Getting messages for conversation ${conversationId}`);
-      return this.prisma.messages.findMany({
+      const messages = await this.prisma.messages.findMany({
         where: { ConversationId: conversationId },
-        orderBy: { SentAt: "asc" },
+        orderBy: { SentAt: "desc" },
+        take:limit,
+        ...(cursor && { cursor: { MessageId: cursor }, skip :1, }),
     });
+
+    // lay ra tin nhan cu tiep theo
+    const nextCursor = messages.length
+      ? messages[messages.length - 1].MessageId
+    : null;
+
+    // hien thi tu cu den moi
+    const reversed =  messages.reverse();
+    return {
+      data : reversed,
+      nextCursor: nextCursor,
+    }
+
+
     }catch(error){
       this.logger.error(error);
       throw error;
