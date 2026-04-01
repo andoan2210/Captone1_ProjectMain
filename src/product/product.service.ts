@@ -8,6 +8,14 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Logger } from 'nestjs-pino';
 import { RedisService } from 'src/shared/service/redis.service';
+import { UploadService } from 'src/upload/upload.service';
+
+type ProductVariantInput = {
+  size: string;
+  color?: string | null;
+  stock: number;
+  price: number;
+};
 
 @Injectable()
 export class ProductService {
@@ -15,9 +23,333 @@ export class ProductService {
     private readonly prisma: PrismaService,
     private readonly logger: Logger,
     private readonly redis: RedisService,
+    private readonly uploadService: UploadService,
   ) {}
 
+  private parseVariants(rawVariants: string): ProductVariantInput[] {
+    let parsed: unknown;
 
+    try {
+      parsed = JSON.parse(rawVariants);
+    } catch (error) {
+      throw new BadRequestException('Variants must be a valid JSON array');
+    }
+
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new BadRequestException('At least one product variant is required');
+    }
+
+    const normalizedVariants = parsed.map((item: any, index: number) => {
+      const size = typeof item?.size === 'string' ? item.size.trim() : '';
+      const color =
+        typeof item?.color === 'string' && item.color.trim() !== ''
+          ? item.color.trim()
+          : null;
+
+      const stock = Number(item?.stock);
+      const price = Number(item?.price);
+
+      if (!size) {
+        throw new BadRequestException(`Variant at index ${index} must have size`);
+      }
+
+      if (size.length > 10) {
+        throw new BadRequestException(
+          `Variant size at index ${index} exceeds 10 characters`,
+        );
+      }
+
+      if (color && color.length > 50) {
+        throw new BadRequestException(
+          `Variant color at index ${index} exceeds 50 characters`,
+        );
+      }
+
+      if (!Number.isInteger(stock) || stock < 0) {
+        throw new BadRequestException(
+          `Variant stock at index ${index} must be an integer >= 0`,
+        );
+      }
+
+      if (!Number.isFinite(price) || price <= 0) {
+        throw new BadRequestException(
+          `Variant price at index ${index} must be greater than 0`,
+        );
+      }
+
+      return {
+        size,
+        color,
+        stock,
+        price,
+      };
+    });
+
+    const duplicateChecker = new Set<string>();
+
+    for (const variant of normalizedVariants) {
+      const key = `${variant.size.toLowerCase()}::${(variant.color ?? '').toLowerCase()}`;
+      if (duplicateChecker.has(key)) {
+        throw new BadRequestException(
+          `Duplicate variant detected for size "${variant.size}" and color "${variant.color ?? ''}"`,
+        );
+      }
+      duplicateChecker.add(key);
+    }
+
+    return normalizedVariants;
+  }
+
+  private parseImageIds(rawImageIds?: string): number[] {
+    if (
+      rawImageIds === undefined ||
+      rawImageIds === null ||
+      rawImageIds.trim() === ''
+    ) {
+      return [];
+    }
+
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(rawImageIds);
+    } catch (error) {
+      throw new BadRequestException(
+        'removeImageIds must be a valid JSON array',
+      );
+    }
+
+    if (!Array.isArray(parsed)) {
+      throw new BadRequestException('removeImageIds must be a JSON array');
+    }
+
+    const normalizedIds = parsed.map((item, index) => {
+      const imageId = Number(item);
+
+      if (!Number.isInteger(imageId) || imageId <= 0) {
+        throw new BadRequestException(
+          `Image id at index ${index} must be a positive integer`,
+        );
+      }
+
+      return imageId;
+    });
+
+    return [...new Set(normalizedIds)];
+  }
+
+  private hasAnyUpdateData(
+    updateProductDto: UpdateProductDto,
+    files?: {
+      thumbnail?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+    },
+  ): boolean {
+    const hasBodyData =
+      updateProductDto.productName !== undefined ||
+      updateProductDto.categoryId !== undefined ||
+      updateProductDto.description !== undefined ||
+      updateProductDto.isActive !== undefined ||
+      updateProductDto.variants !== undefined ||
+      updateProductDto.removeImageIds !== undefined;
+
+    const hasThumbnail = !!files?.thumbnail?.[0];
+    const hasNewImages = (files?.images?.length ?? 0) > 0;
+
+    return hasBodyData || hasThumbnail || hasNewImages;
+  }
+
+  async create(
+    ownerUserId: number,
+    createProductDto: CreateProductDto,
+    files: {
+      thumbnail?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+    },
+  ) {
+    const uploadedFileUrls: string[] = [];
+
+    try {
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          OwnerId: ownerUserId,
+          IsDeleted: false,
+        },
+        select: {
+          StoreId: true,
+        },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      const category = await this.prisma.categories.findFirst({
+        where: {
+          CategoryId: createProductDto.categoryId,
+          IsActive: true,
+        },
+        select: {
+          CategoryId: true,
+        },
+      });
+
+      if (!category) {
+        throw new NotFoundException('Category not found');
+      }
+
+      const variants = this.parseVariants(createProductDto.variants);
+
+      const thumbnailFile = files?.thumbnail?.[0];
+      const imageFiles = files?.images ?? [];
+
+      if (!thumbnailFile) {
+        throw new BadRequestException('Thumbnail image is required');
+      }
+
+      const thumbnailUrl = await this.uploadService.uploadImage(
+        thumbnailFile,
+        'products/thumbnail',
+      );
+      uploadedFileUrls.push(thumbnailUrl);
+
+      const imageUrls =
+        imageFiles.length > 0
+          ? await this.uploadService.uploadMultipleImages(
+              imageFiles,
+              'products/images',
+            )
+          : [];
+
+      uploadedFileUrls.push(...imageUrls);
+
+      const representativePrice = Math.min(...variants.map((item) => item.price));
+
+      const createdProduct = await this.prisma.$transaction(async (tx) => {
+        const product = await tx.products.create({
+          data: {
+            StoreId: store.StoreId,
+            CategoryId: createProductDto.categoryId,
+            ProductName: createProductDto.productName.trim(),
+            Description: createProductDto.description?.trim() || null,
+            Price: representativePrice,
+            ThumbnailUrl: thumbnailUrl,
+            IsActive: createProductDto.isActive ?? true,
+            IsDeleted: false,
+          },
+          select: {
+            ProductId: true,
+            StoreId: true,
+            CategoryId: true,
+            ProductName: true,
+            Description: true,
+            Price: true,
+            ThumbnailUrl: true,
+            IsActive: true,
+            CreatedAt: true,
+          },
+        });
+
+        if (imageUrls.length > 0) {
+          await tx.productImages.createMany({
+            data: imageUrls.map((url) => ({
+              ProductId: product.ProductId,
+              ImageUrl: url,
+            })),
+          });
+        }
+
+        await tx.productVariants.createMany({
+          data: variants.map((variant) => ({
+            ProductId: product.ProductId,
+            Size: variant.size,
+            Color: variant.color,
+            Stock: variant.stock,
+            Price: variant.price,
+          })),
+        });
+
+        const createdImages = await tx.productImages.findMany({
+          where: {
+            ProductId: product.ProductId,
+          },
+          select: {
+            ImageId: true,
+            ImageUrl: true,
+          },
+          orderBy: {
+            ImageId: 'asc',
+          },
+        });
+
+        const createdVariants = await tx.productVariants.findMany({
+          where: {
+            ProductId: product.ProductId,
+          },
+          select: {
+            VariantId: true,
+            Size: true,
+            Color: true,
+            Stock: true,
+            Price: true,
+          },
+          orderBy: {
+            VariantId: 'asc',
+          },
+        });
+
+        return {
+          ...product,
+          images: createdImages,
+          variants: createdVariants,
+        };
+      });
+
+      this.logger.log(
+        `Create product successfully: productId=${createdProduct.ProductId}, storeId=${createdProduct.StoreId}`,
+      );
+
+      return {
+        message: 'Create product successfully',
+        data: {
+          productId: createdProduct.ProductId,
+          storeId: createdProduct.StoreId,
+          categoryId: createdProduct.CategoryId,
+          productName: createdProduct.ProductName,
+          description: createdProduct.Description,
+          price: createdProduct.Price,
+          thumbnailUrl: createdProduct.ThumbnailUrl,
+          isActive: createdProduct.IsActive,
+          createdAt: createdProduct.CreatedAt,
+          images: createdProduct.images.map((image) => ({
+            imageId: image.ImageId,
+            imageUrl: image.ImageUrl,
+          })),
+          variants: createdProduct.variants.map((variant) => ({
+            variantId: variant.VariantId,
+            size: variant.Size,
+            color: variant.Color,
+            stock: variant.Stock,
+            price: variant.Price,
+          })),
+        },
+      };
+    } catch (error) {
+      this.logger.error(error);
+
+      if (uploadedFileUrls.length > 0) {
+        for (const fileUrl of uploadedFileUrls) {
+          try {
+            await this.uploadService.deleteFile(fileUrl);
+          } catch (cleanupError) {
+            this.logger.error(cleanupError);
+          }
+        }
+      }
+
+      throw error;
+    }
+  }
 
   async getNewProduct(limit: number) {
     try {
@@ -78,73 +410,75 @@ export class ProductService {
   }
 
   async getBestSellerProduct(limit: number) {
-  try {
-    const cacheKey = `product:best-seller:${limit}`;
-    const cached = await this.redis.get(cacheKey);
-    if (cached) {
-      this.logger.log('Product from cache');
-      return JSON.parse(cached);
-    }
-    const products = await this.prisma.$queryRaw<
-      {
-        ProductId: number;
-        ProductName: string;
-        Price: number;
-        ThumbnailUrl: string;
-        CreatedAt: Date;
-        CategoryName: string;
-        Sold: number;
-      }[]
-    >`
-    SELECT TOP (${limit})
-      p.ProductId,
-      p.ProductName,
-      p.Price,
-      p.ThumbnailUrl,
-      p.CreatedAt,
-      c.CategoryName,
-      SUM(oi.Quantity) as Sold
-    FROM OrderItems oi
-    JOIN ProductVariants pv 
-      ON pv.VariantId = oi.VariantId
-    JOIN Products p 
-      ON p.ProductId = pv.ProductId
-      AND p.IsActive = 1 
-      AND p.IsDeleted = 0
-    LEFT JOIN Categories c 
-      ON c.CategoryId = p.CategoryId
-    GROUP BY 
-      p.ProductId,
-      p.ProductName,
-      p.Price,
-      p.ThumbnailUrl,
-      p.CreatedAt,
-      c.CategoryName
-    ORDER BY Sold DESC
-    `;
+    try {
+      const cacheKey = `product:best-seller:${limit}`;
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        this.logger.log('Product from cache');
+        return JSON.parse(cached);
+      }
 
-    if (!products || products.length === 0) {
-      this.logger.error('Product not found');
-      return [];
-    }
-    const result = products.map(p => ({
-      id: p.ProductId,
-      name: p.ProductName,
-      price: p.Price,
-      thumbnail: p.ThumbnailUrl,
-      categoryName: p.CategoryName,
-      sold: p.Sold,
-    }));
-    this.logger.log(products);
-    await this.redis.set(cacheKey, JSON.stringify(result), 60 * 5);
-    this.logger.log('Product from DB');
-    return result;
+      const products = await this.prisma.$queryRaw<
+        {
+          ProductId: number;
+          ProductName: string;
+          Price: number;
+          ThumbnailUrl: string;
+          CreatedAt: Date;
+          CategoryName: string;
+          Sold: number;
+        }[]
+      >`
+      SELECT TOP (${limit})
+        p.ProductId,
+        p.ProductName,
+        p.Price,
+        p.ThumbnailUrl,
+        p.CreatedAt,
+        c.CategoryName,
+        SUM(oi.Quantity) as Sold
+      FROM OrderItems oi
+      JOIN ProductVariants pv 
+        ON pv.VariantId = oi.VariantId
+      JOIN Products p 
+        ON p.ProductId = pv.ProductId
+        AND p.IsActive = 1 
+        AND p.IsDeleted = 0
+      LEFT JOIN Categories c 
+        ON c.CategoryId = p.CategoryId
+      GROUP BY 
+        p.ProductId,
+        p.ProductName,
+        p.Price,
+        p.ThumbnailUrl,
+        p.CreatedAt,
+        c.CategoryName
+      ORDER BY Sold DESC
+      `;
 
-  } catch (error) {
-    this.logger.error(error);
-    throw error;
+      if (!products || products.length === 0) {
+        this.logger.error('Product not found');
+        return [];
+      }
+
+      const result = products.map((p) => ({
+        id: p.ProductId,
+        name: p.ProductName,
+        price: p.Price,
+        thumbnail: p.ThumbnailUrl,
+        categoryName: p.CategoryName,
+        sold: p.Sold,
+      }));
+
+      this.logger.log(products);
+      await this.redis.set(cacheKey, JSON.stringify(result), 60 * 5);
+      this.logger.log('Product from DB');
+      return result;
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
-  } 
 
   async getByCategory(categoryId: number, page: number, limit: number) {
     try {
@@ -196,6 +530,86 @@ export class ProductService {
     }
   }
 
+  async getMyProducts(ownerUserId: number) {
+    try {
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          OwnerId: ownerUserId,
+          IsDeleted: false,
+        },
+        select: {
+          StoreId: true,
+        },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      const products = await this.prisma.products.findMany({
+        where: {
+          StoreId: store.StoreId,
+          IsDeleted: false,
+        },
+        orderBy: {
+          UpdatedAt: 'desc',
+        },
+        select: {
+          ProductId: true,
+          ProductName: true,
+          Price: true,
+          ThumbnailUrl: true,
+          IsActive: true,
+          UpdatedAt: true,
+          CreatedAt: true,
+          Categories: {
+            select: {
+              CategoryId: true,
+              CategoryName: true,
+            },
+          },
+          ProductVariants: {
+            select: {
+              Stock: true,
+            },
+          },
+        },
+      });
+
+      const result = products.map((product) => {
+        const totalStock = product.ProductVariants.reduce(
+          (sum, variant) => sum + (variant.Stock ?? 0),
+          0,
+        );
+
+        return {
+          productId: product.ProductId,
+          productName: product.ProductName,
+          price: Number(product.Price),
+          thumbnailUrl: product.ThumbnailUrl,
+          stock: totalStock,
+          isActive: product.IsActive ?? false,
+          updatedAt: product.UpdatedAt,
+          createdAt: product.CreatedAt,
+          category: product.Categories
+            ? {
+                categoryId: product.Categories.CategoryId,
+                categoryName: product.Categories.CategoryName,
+              }
+            : null,
+        };
+      });
+
+      return {
+        message: 'Get my products successfully',
+        data: result,
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
   findAll() {
     return `This action returns all product`;
   }
@@ -204,12 +618,334 @@ export class ProductService {
     return `This action returns a #${id} product`;
   }
 
-  update(id: number, updateProductDto: UpdateProductDto) {
-    return `This action updates a #${id} product`;
+  async update(
+    ownerUserId: number,
+    id: number,
+    updateProductDto: UpdateProductDto,
+    files: {
+      thumbnail?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+    },
+  ) {
+    const uploadedFileUrls: string[] = [];
+    const oldFileUrlsToDeleteAfterSuccess: string[] = [];
+
+    try {
+      if (!this.hasAnyUpdateData(updateProductDto, files)) {
+        throw new BadRequestException('No data provided to update');
+      }
+
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          OwnerId: ownerUserId,
+          IsDeleted: false,
+        },
+        select: {
+          StoreId: true,
+        },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      const existingProduct = await this.prisma.products.findFirst({
+        where: {
+          ProductId: id,
+          StoreId: store.StoreId,
+          IsDeleted: false,
+        },
+        select: {
+          ProductId: true,
+          StoreId: true,
+          CategoryId: true,
+          ProductName: true,
+          Description: true,
+          Price: true,
+          ThumbnailUrl: true,
+          IsActive: true,
+          UpdatedAt: true,
+          ProductImages: {
+            select: {
+              ImageId: true,
+              ImageUrl: true,
+            },
+            orderBy: {
+              ImageId: 'asc',
+            },
+          },
+          ProductVariants: {
+            select: {
+              VariantId: true,
+              Size: true,
+              Color: true,
+              Stock: true,
+              Price: true,
+            },
+            orderBy: {
+              VariantId: 'asc',
+            },
+          },
+        },
+      });
+
+      if (!existingProduct) {
+        throw new NotFoundException('Product not found');
+      }
+
+      if (updateProductDto.categoryId !== undefined) {
+        const category = await this.prisma.categories.findFirst({
+          where: {
+            CategoryId: updateProductDto.categoryId,
+            IsActive: true,
+          },
+          select: {
+            CategoryId: true,
+          },
+        });
+
+        if (!category) {
+          throw new NotFoundException('Category not found');
+        }
+      }
+
+      const parsedVariants =
+        updateProductDto.variants !== undefined
+          ? this.parseVariants(updateProductDto.variants)
+          : null;
+
+      const removeImageIds = this.parseImageIds(updateProductDto.removeImageIds);
+
+      const removableImages =
+        removeImageIds.length > 0
+          ? existingProduct.ProductImages.filter((image) =>
+              removeImageIds.includes(image.ImageId),
+            )
+          : [];
+
+      if (
+        removeImageIds.length > 0 &&
+        removableImages.length !== removeImageIds.length
+      ) {
+        throw new BadRequestException(
+          'One or more images do not belong to this product',
+        );
+      }
+
+      const thumbnailFile = files?.thumbnail?.[0];
+      const newImageFiles = files?.images ?? [];
+
+      let newThumbnailUrl: string | null = null;
+      if (thumbnailFile) {
+        newThumbnailUrl = await this.uploadService.uploadImage(
+          thumbnailFile,
+          'products/thumbnail',
+        );
+        uploadedFileUrls.push(newThumbnailUrl);
+      }
+
+      const newImageUrls =
+        newImageFiles.length > 0
+          ? await this.uploadService.uploadMultipleImages(
+              newImageFiles,
+              'products/images',
+            )
+          : [];
+
+      uploadedFileUrls.push(...newImageUrls);
+
+      const productData: {
+        CategoryId?: number;
+        ProductName?: string;
+        Description?: string | null;
+        IsActive?: boolean;
+        ThumbnailUrl?: string;
+        Price?: number;
+      } = {};
+
+      if (updateProductDto.categoryId !== undefined) {
+        productData.CategoryId = updateProductDto.categoryId;
+      }
+
+      if (updateProductDto.productName !== undefined) {
+        productData.ProductName = updateProductDto.productName.trim();
+      }
+
+      if (updateProductDto.description !== undefined) {
+        productData.Description = updateProductDto.description?.trim() || null;
+      }
+
+      if (updateProductDto.isActive !== undefined) {
+        productData.IsActive = updateProductDto.isActive;
+      }
+
+      if (newThumbnailUrl) {
+        productData.ThumbnailUrl = newThumbnailUrl;
+      }
+
+      if (parsedVariants) {
+        productData.Price = Math.min(...parsedVariants.map((item) => item.price));
+      }
+
+      const updatedProduct = await this.prisma.$transaction(async (tx) => {
+        const product = await tx.products.update({
+          where: {
+            ProductId: existingProduct.ProductId,
+          },
+          data: productData,
+          select: {
+            ProductId: true,
+            StoreId: true,
+            CategoryId: true,
+            ProductName: true,
+            Description: true,
+            Price: true,
+            ThumbnailUrl: true,
+            IsActive: true,
+            UpdatedAt: true,
+          },
+        });
+
+        if (parsedVariants) {
+          await tx.productVariants.deleteMany({
+            where: {
+              ProductId: existingProduct.ProductId,
+            },
+          });
+
+          await tx.productVariants.createMany({
+            data: parsedVariants.map((variant) => ({
+              ProductId: existingProduct.ProductId,
+              Size: variant.size,
+              Color: variant.color,
+              Stock: variant.stock,
+              Price: variant.price,
+            })),
+          });
+        }
+
+        if (removeImageIds.length > 0) {
+          await tx.productImages.deleteMany({
+            where: {
+              ProductId: existingProduct.ProductId,
+              ImageId: {
+                in: removeImageIds,
+              },
+            },
+          });
+        }
+
+        if (newImageUrls.length > 0) {
+          await tx.productImages.createMany({
+            data: newImageUrls.map((url) => ({
+              ProductId: existingProduct.ProductId,
+              ImageUrl: url,
+            })),
+          });
+        }
+
+        const currentImages = await tx.productImages.findMany({
+          where: {
+            ProductId: existingProduct.ProductId,
+          },
+          select: {
+            ImageId: true,
+            ImageUrl: true,
+          },
+          orderBy: {
+            ImageId: 'asc',
+          },
+        });
+
+        const currentVariants = await tx.productVariants.findMany({
+          where: {
+            ProductId: existingProduct.ProductId,
+          },
+          select: {
+            VariantId: true,
+            Size: true,
+            Color: true,
+            Stock: true,
+            Price: true,
+          },
+          orderBy: {
+            VariantId: 'asc',
+          },
+        });
+
+        return {
+          ...product,
+          images: currentImages,
+          variants: currentVariants,
+        };
+      });
+
+      if (newThumbnailUrl && existingProduct.ThumbnailUrl) {
+        oldFileUrlsToDeleteAfterSuccess.push(existingProduct.ThumbnailUrl);
+      }
+
+      if (removableImages.length > 0) {
+        oldFileUrlsToDeleteAfterSuccess.push(
+          ...removableImages.map((image) => image.ImageUrl),
+        );
+      }
+
+      for (const fileUrl of oldFileUrlsToDeleteAfterSuccess) {
+        try {
+          await this.uploadService.deleteFile(fileUrl);
+        } catch (cleanupError) {
+          this.logger.error(cleanupError);
+        }
+      }
+
+      this.logger.log(
+        `Update product successfully: productId=${updatedProduct.ProductId}, storeId=${updatedProduct.StoreId}`,
+      );
+
+      return {
+        message: 'Update product successfully',
+        data: {
+          productId: updatedProduct.ProductId,
+          storeId: updatedProduct.StoreId,
+          categoryId: updatedProduct.CategoryId,
+          productName: updatedProduct.ProductName,
+          description: updatedProduct.Description,
+          price: updatedProduct.Price,
+          thumbnailUrl: updatedProduct.ThumbnailUrl,
+          isActive: updatedProduct.IsActive,
+          updatedAt: updatedProduct.UpdatedAt,
+          images: updatedProduct.images.map((image) => ({
+            imageId: image.ImageId,
+            imageUrl: image.ImageUrl,
+          })),
+          variants: updatedProduct.variants.map((variant) => ({
+            variantId: variant.VariantId,
+            size: variant.Size,
+            color: variant.Color,
+            stock: variant.Stock,
+            price: variant.Price,
+          })),
+        },
+      };
+    } catch (error) {
+      this.logger.error(error);
+
+      if (uploadedFileUrls.length > 0) {
+        for (const fileUrl of uploadedFileUrls) {
+          try {
+            await this.uploadService.deleteFile(fileUrl);
+          } catch (cleanupError) {
+            this.logger.error(cleanupError);
+          }
+        }
+      }
+
+      throw error;
+    }
   }
 
   async getDetailProduct(id: number) {
-    try{
+    try {
       const product = await this.prisma.products.findFirst({
         where: {
           ProductId: id,
@@ -221,41 +957,41 @@ export class ProductService {
           ProductName: true,
           Price: true,
           ThumbnailUrl: true,
-          Description :true,
+          Description: true,
           Categories: {
             select: { CategoryName: true },
           },
           ProductImages: {
-            select : {
-              ImageUrl : true,
-            }
+            select: {
+              ImageUrl: true,
+            },
           },
-          ProductVariants : {
-            select : {
-              VariantId : true,
-              Size : true,
-              Color : true,
-              Stock : true,
-              Price : true,
-            }
+          ProductVariants: {
+            select: {
+              VariantId: true,
+              Size: true,
+              Color: true,
+              Stock: true,
+              Price: true,
+            },
           },
         },
       });
 
-      if(!product){
+      if (!product) {
         this.logger.error('Product not found');
         return null;
       }
 
       const sold = await this.prisma.orderItems.aggregate({
-          _sum: {
-            Quantity: true,
+        _sum: {
+          Quantity: true,
+        },
+        where: {
+          ProductVariants: {
+            ProductId: id,
           },
-          where: {
-            ProductVariants: {
-              ProductId: id,
-            },
-          },
+        },
       });
 
       this.logger.log(product);
@@ -266,8 +1002,8 @@ export class ProductService {
         thumbnail: product.ThumbnailUrl,
         description: product.Description,
         categoryName: product.Categories?.CategoryName ?? null,
-        images: product.ProductImages.map(img => img.ImageUrl),
-        variants: product.ProductVariants.map(variant => ({
+        images: product.ProductImages.map((img) => img.ImageUrl),
+        variants: product.ProductVariants.map((variant) => ({
           variantId: variant.VariantId,
           size: variant.Size,
           color: variant.Color,
@@ -276,7 +1012,7 @@ export class ProductService {
         })),
         sold: sold._sum.Quantity || 0,
       };
-    }catch(error){
+    } catch (error) {
       this.logger.error(error);
       throw error;
     }

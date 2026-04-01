@@ -10,13 +10,16 @@ import {
   IsUrl,
   Length,
   Min,
+  
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 export class CreateProductDto {
   @IsNotEmpty({ message: 'Product name is required' })
   @IsString()
-  @Length(3, 200, { message: 'Product name must be between 3 and 200 characters' })
+  @Length(3, 200, {
+    message: 'Product name must be between 3 and 200 characters',
+  })
   productName: string;
 
   @IsNotEmpty({ message: 'Category is required' })
@@ -29,31 +32,16 @@ export class CreateProductDto {
   @IsString()
   description?: string;
 
-  @IsNotEmpty({ message: 'Thumbnail url is required' })
-  @IsString()
-  @IsUrl({}, { message: 'Thumbnail url must be a valid URL' })
-  thumbnailUrl: string;
-
   @IsOptional()
-  @IsArray({ message: 'Image urls must be an array' })
-  @ArrayMaxSize(10, { message: 'You can upload up to 10 product images' })
-  @IsUrl({}, { each: true, message: 'Each image url must be a valid URL' })
-  imageUrls?: string[];
-
-  @IsNotEmpty({ message: 'Price is required' })
-  @Type(() => Number)
-  @IsNumber({}, { message: 'Price must be a valid number' })
-  @Min(0.01, { message: 'Price must be greater than 0' })
-  price: number;
-
-  @IsNotEmpty({ message: 'Stock is required' })
-  @Type(() => Number)
-  @IsInt({ message: 'Stock must be an integer' })
-  @Min(0, { message: 'Stock must be greater than or equal to 0' })
-  stock: number;
-
-  @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return value;
+  })
   @IsBoolean({ message: 'Is active must be a boolean value' })
   isActive?: boolean;
+
+  @IsNotEmpty({ message: 'Variants is required' })
+  @IsString({ message: 'Variants must be a JSON string' })
+  variants: string;
 }
