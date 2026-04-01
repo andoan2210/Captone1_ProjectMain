@@ -182,6 +182,51 @@ async getStoreByBest(limit: number) {
     }
   }
 
+  async getStoreByProduct(productId: number){
+    try{
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          Products: {
+            some: {
+              ProductId: productId,
+              IsActive: true,
+              IsDeleted: false,
+            },
+          },
+        },
+        select: {
+          StoreId: true,
+          StoreName: true,
+          LogoUrl: true,
+          _count: {
+          select: {
+            Products:{
+              where :{
+                IsActive : true,
+                IsDeleted : false,
+              }
+            }
+          },
+        },
+        },
+      }); 
+      if(!store){
+        throw new NotFoundException('Store not found');
+      }
+      this.logger.log('Store get by product');
+      return {
+        storeId: store.StoreId,
+        storeName: store.StoreName,
+        logoUrl: store.LogoUrl,
+        productCount: store._count.Products,
+      };
+    }catch(error){
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
+  
   findOne(id: number) {
     return `This action returns a #${id} store`;
   }

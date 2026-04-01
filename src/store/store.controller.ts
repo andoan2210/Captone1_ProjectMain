@@ -51,6 +51,11 @@ export class StoreController {
   create(@Body() createStoreDto: CreateStoreDto) {
     return this.storeService.create(createStoreDto);
   }
+  
+  @Get('getshopbyproduct/:productId')
+  getStoreByProduct(@Param('productId') productId: number) {
+    return this.storeService.getStoreByProduct(productId);
+  }
 
   @Get()
   findAll() {
