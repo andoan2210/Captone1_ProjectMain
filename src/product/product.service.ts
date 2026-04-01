@@ -530,8 +530,9 @@ export class ProductService {
     }
   }
 
-  async getMyProducts(ownerUserId: number) {
+  async getMyProducts(ownerUserId: number, page : number , limit :number) {
     try {
+      const skip = (page - 1) * limit;
       const store = await this.prisma.stores.findFirst({
         where: {
           OwnerId: ownerUserId,
@@ -551,6 +552,8 @@ export class ProductService {
           StoreId: store.StoreId,
           IsDeleted: false,
         },
+        skip,
+        take: limit,
         orderBy: {
           UpdatedAt: 'desc',
         },
@@ -1044,11 +1047,28 @@ export class ProductService {
           ProductId: true,
           ProductName: true,
           StoreId: true,
+          ThumbnailUrl: true,
+          ProductImages :{
+            select :{
+              ImageId : true,
+              ImageUrl : true,
+            },
+          },
         },
       });
 
       if (!existingProduct) {
         throw new NotFoundException('Product not found');
+      }
+
+      if(existingProduct.ThumbnailUrl){
+        this.logger.log(`delete thumbnail ${existingProduct.ThumbnailUrl}`);
+        await this.uploadService.deleteFile(existingProduct.ThumbnailUrl);
+      }
+
+      for(const image of existingProduct.ProductImages){
+        this.logger.log(`delete image ${image.ImageId} : ${image.ImageUrl}`);
+        await this.uploadService.deleteFile(image.ImageUrl);
       }
 
       const deletedProduct = await this.prisma.products.update({
@@ -1084,6 +1104,65 @@ export class ProductService {
           updatedAt: deletedProduct.UpdatedAt,
         },
       };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+  
+  async getProductShop(idShop : number,limit :number){
+    try {
+      const products = await this.prisma.products.findMany({
+        where: {
+          StoreId: idShop,
+          IsActive :true,
+          IsDeleted :false,
+        },
+        take:limit,
+        select: {
+          ProductId: true,
+          ProductName: true,
+          Price: true,
+          ThumbnailUrl: true,
+          Description: true,
+          Categories: {
+            select: { CategoryName: true },
+          },
+          ProductImages: {
+            select: {
+              ImageUrl: true,
+            },
+          },
+          ProductVariants: {
+            select: {
+              VariantId: true,
+              Size: true,
+              Color: true,
+              Stock: true,
+              Price: true,
+            },
+          },
+        },
+      });
+
+      this.logger.log(`idShop : ${idShop}`);
+      this.logger.log(products);
+      return products.map((product) => ({
+        id: product.ProductId,
+        name: product.ProductName,
+        price: product.Price,
+        description: product.Description,
+        thumbnail: product.ThumbnailUrl,
+        categoryName: product.Categories?.CategoryName ?? null,
+        images: product.ProductImages.map((img) => img.ImageUrl),
+        variants: product.ProductVariants.map((variant) => ({
+          variantId: variant.VariantId,
+          size: variant.Size,
+          color: variant.Color,
+          stock: variant.Stock,
+          price: variant.Price,
+        })),
+      }));
     } catch (error) {
       this.logger.error(error);
       throw error;
