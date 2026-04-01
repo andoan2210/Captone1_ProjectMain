@@ -55,8 +55,10 @@ export class ProductController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SHOP_OWNER)
   @Get('my-products')
-  getMyProducts(@Req() req) {
-    return this.productService.getMyProducts(req.user.userId);
+  getMyProducts(@Req() req , @Query('page') page?: string, @Query('limit') limit?: string) {
+    const pageNumber = parseInt(page || '1', 10);
+    const limitNumber = parseInt(limit || '5', 10);
+    return this.productService.getMyProducts(req.user.userId, pageNumber, limitNumber);
   }
   
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -119,6 +121,12 @@ export class ProductController {
     const limitNumber = limit || 5;
     const pageNumber = page || 1;
     return this.productService.getByCategory(categoryId, pageNumber, limitNumber);
+  }
+
+  @Get('product-shop/:shopId')
+  getProductByShopId(@Param('shopId') shopId: number , @Query('limit') limit: number) {
+    const limitNumber = limit || 5;
+    return this.productService.getProductShop(Number(shopId), limitNumber);
   }
 
   @Get(':id')
