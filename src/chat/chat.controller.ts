@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Req, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Req, Request, Query } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
@@ -38,8 +38,13 @@ export class ChatController {
   // lấy ra cuộc trò chuyện của userID gọi khi nhấn vào các cái cuộc trò chuyên trong danh sách
   @Get("messages/:conversationId")
   @UseGuards(JwtAuthGuard)
-  getMessages(@Request() req, @Param("conversationId") conversationId: string) {
-    return this.chatService.getMessages(req.user.userId, Number(conversationId));
+  getMessages(@Request() req, @Param("conversationId") conversationId: string , @Query("cursor") cursor?: number , @Query("limit") limit?: number) {
+    return this.chatService.getMessages(
+      req.user.userId,
+      Number(conversationId),
+      cursor ? Number(cursor) : undefined,
+      limit ? Number(limit) : 20,
+    );
   }
 
   @Get()
