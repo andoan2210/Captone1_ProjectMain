@@ -999,6 +999,7 @@ export class ProductService {
         id: product.ProductId,
         name: product.ProductName,
         price: product.Price,
+        description: product.Description,
         thumbnail: product.ThumbnailUrl,
         description: product.Description,
         categoryName: product.Categories?.CategoryName ?? null,
