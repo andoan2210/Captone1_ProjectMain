@@ -22,6 +22,28 @@ export class OrderController {
     return this.orderService.getOrderForShop(req.user.userId);
   }
   
+
+  @Get('invoice/:orderId')
+  @Roles(Role.CLIENT,Role.SHOP_OWNER)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  getInvoice(@Request() req, @Param('orderId') orderId: number) {
+    return this.orderService.getInvoice(req.user.userId, orderId);
+  }
+  
+  @Get('order-detail/:orderId')
+  @Roles(Role.CLIENT,Role.SHOP_OWNER)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  getOrderDetail(@Request() req, @Param('orderId') orderId: number) {
+    return this.orderService.getOrderDetail(req.user.userId, orderId);
+  }
+
+  @Patch('cancel-order/:orderId')
+  @Roles(Role.CLIENT,Role.SHOP_OWNER)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  cancelOrder(@Request() req, @Param('orderId') orderId: number) {
+    return this.orderService.cancelOrder(req.user.userId, orderId);
+  }
+
   @Get()
   findAll() {
     return this.orderService.findAll();
