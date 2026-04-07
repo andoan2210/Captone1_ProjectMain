@@ -50,6 +50,9 @@ export class ChatGateway
 
       client.data.user = user;
 
+      // AUTO JOIN PHÒNG CÁ NHÂN KHI VỪA CONNECT
+      client.join(`user_${user.sub}`);
+
       console.log(`[WS CONNECT] user=${user.sub}`);
     } catch (err: any) {
       console.log("[WS ERROR] Auth:", err?.message);
@@ -117,6 +120,20 @@ export class ChatGateway
                 senderId: Number(user.sub),
                 content: data.content,
             });
+
+            // FIX: Lấy thông tin hội thoại để biết người nhận là ai (Chủ shop hay Khách)
+            const conversation = await this.chatService.getConversationById(
+              data.conversationId,
+            );
+            if (conversation) {
+              const recipientId =
+                conversation.ClientId === Number(user.sub)
+                  ? conversation.ShopOwnerId
+                  : conversation.ClientId;
+
+            // FIX: Phát tĩnh tin nhắn vào phòng cá nhân của người nhận (trường hợp họ chưa mở hội thoại)
+            client.to(`user_${recipientId}`).emit('message', message);
+            }
 
             // emit cho room
             const room = `conversation_${data.conversationId}`;
