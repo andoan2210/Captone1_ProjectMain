@@ -1,35 +1,61 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  Req,
+  UseGuards,
+  ParseIntPipe,
+} from '@nestjs/common';
 import { VoucherService } from './voucher.service';
 import { CreateVoucherDto } from './dto/create-voucher.dto';
 import { UpdateVoucherDto } from './dto/update-voucher.dto';
+import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
+import { RolesGuard } from 'src/auth/passport/roles.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/enums/role.enum';
 
 @Controller('voucher')
 export class VoucherController {
   constructor(private readonly voucherService: VoucherService) {}
 
+  // Tạo voucher mới cho shop đang đăng nhập
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
   @Post()
-  create(@Body() createVoucherDto: CreateVoucherDto) {
-    return this.voucherService.create(createVoucherDto);
+  create(@Req() req, @Body() createVoucherDto: CreateVoucherDto) {
+    return this.voucherService.create(req.user.userId, createVoucherDto);
   }
 
+  // Lấy danh sách voucher tốt nhất
   @Get('top-voucher')
   getVoucherByBest(@Query('limit') limit: number) {
-    const limitNumber = limit || 5;
+    const limitNumber = Number(limit) || 5;
     return this.voucherService.getVoucherByBest(limitNumber);
   }
 
+  // Lấy chi tiết 1 voucher theo id
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.voucherService.findOne(+id);
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.voucherService.findOne(id);
   }
 
+  // Cập nhật voucher theo id
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateVoucherDto: UpdateVoucherDto) {
-    return this.voucherService.update(+id, updateVoucherDto);
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateVoucherDto: UpdateVoucherDto,
+  ) {
+    return this.voucherService.update(id, updateVoucherDto);
   }
 
+  // Xóa voucher theo id
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.voucherService.remove(+id);
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.voucherService.remove(id);
   }
 }
