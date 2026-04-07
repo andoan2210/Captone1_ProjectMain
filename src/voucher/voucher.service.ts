@@ -8,6 +8,7 @@ import { UpdateVoucherDto } from './dto/update-voucher.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Logger } from 'nestjs-pino';
 import { RedisService } from 'src/shared/service/redis.service';
+import { GetMyVouchersDto } from './dto/get-my-vouchers.dto';
 
 @Injectable()
 export class VoucherService {
@@ -442,4 +443,134 @@ export class VoucherService {
       throw error;
     }
   }
+
+  // Lấy danh sách voucher của shop owner đang đăng nhập
+async getMyVouchers(userId: number, query: GetMyVouchersDto) {
+  try {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    const search = query.search?.trim();
+    const status = query.status ?? 'all';
+
+    const skip = (page - 1) * limit;
+    const now = new Date();
+
+    // Tìm store của user hiện tại
+    const store = await this.prisma.stores.findFirst({
+      where: {
+        OwnerId: userId,
+        IsDeleted: false,
+        IsActive: true,
+      },
+      select: {
+        StoreId: true,
+        StoreName: true,
+      },
+    });
+
+    // Nếu user chưa có store thì báo lỗi
+    if (!store) {
+      throw new NotFoundException('Store not found');
+    }
+
+    const whereCondition: any = {
+      StoreId: store.StoreId,
+    };
+
+    // Search theo mã voucher
+    if (search) {
+      whereCondition.Code = {
+        contains: search,
+      };
+    }
+
+    // Lọc theo trạng thái
+    if (status === 'active') {
+      whereCondition.IsActive = true;
+      whereCondition.ExpiredDate = {
+        gt: now,
+      };
+    }
+
+    if (status === 'inactive') {
+      whereCondition.IsActive = false;
+    }
+
+    if (status === 'expired') {
+      whereCondition.ExpiredDate = {
+        lte: now,
+      };
+    }
+
+    // Đếm tổng số voucher theo điều kiện lọc
+    const totalItems = await this.prisma.vouchers.count({
+      where: whereCondition,
+    });
+
+    // Lấy danh sách voucher
+    const vouchers = await this.prisma.vouchers.findMany({
+      where: whereCondition,
+      skip,
+      take: limit,
+      orderBy: [
+        { VoucherId: 'desc' },
+      ],
+      select: {
+        VoucherId: true,
+        StoreId: true,
+        Code: true,
+        DiscountPercent: true,
+        Quantity: true,
+        ExpiredDate: true,
+        IsActive: true,
+      },
+    });
+
+  const items = vouchers.map((voucher) => {
+  let displayStatus = 'inactive';
+
+  if (voucher.ExpiredDate) {
+    if (voucher.IsActive && voucher.ExpiredDate > now) {
+      displayStatus = 'active';
+    } else if (voucher.ExpiredDate <= now) {
+      displayStatus = 'expired';
+    }
+  }
+
+  return {
+    voucherId: voucher.VoucherId,
+    storeId: voucher.StoreId,
+    code: voucher.Code,
+    discountPercent: voucher.DiscountPercent,
+    quantity: voucher.Quantity,
+    expiredDate: voucher.ExpiredDate,
+    isActive: voucher.IsActive,
+    applyScope: 'ALL_PRODUCTS_IN_SHOP',
+    displayStatus,
+  };
+    });
+
+    return {
+      message: 'Get voucher list successfully',
+      data: {
+        storeId: store.StoreId,
+        storeName: store.StoreName,
+        items,
+        pagination: {
+          page,
+          limit,
+          totalItems,
+          totalPages: Math.ceil(totalItems / limit),
+        },
+        filters: {
+          search: search ?? '',
+          status,
+        },
+      },
+    };
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
+  }
+}
 }
