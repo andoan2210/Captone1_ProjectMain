@@ -309,6 +309,8 @@ export class ProductService {
         `Create product successfully: productId=${createdProduct.ProductId}, storeId=${createdProduct.StoreId}`,
       );
 
+      await this.redis.deleteByPattern(`product:category:${createdProduct.CategoryId}:*`);
+
       return {
         message: 'Create product successfully',
         data: {
@@ -399,7 +401,7 @@ export class ProductService {
         CategoryName: p.Categories?.CategoryName ?? null,
       }));
 
-      await this.redis.set(cacheKey, JSON.stringify(result), 60 * 5);
+      await this.redis.set(cacheKey, JSON.stringify(result), 60 * 1);
       this.logger.log('Product from DB');
 
       return result;
@@ -904,6 +906,8 @@ export class ProductService {
       this.logger.log(
         `Update product successfully: productId=${updatedProduct.ProductId}, storeId=${updatedProduct.StoreId}`,
       );
+
+      await this.redis.deleteByPattern(`product:category:${updatedProduct.CategoryId}:*`);
 
       return {
         message: 'Update product successfully',
