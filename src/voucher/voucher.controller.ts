@@ -56,9 +56,11 @@ export class VoucherController {
     return this.voucherService.update(req.user.userId, id, updateVoucherDto);
   }
 
-  // Xóa voucher theo id
+  // Xóa voucher của shop đang đăng nhập
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.voucherService.remove(id);
+  remove(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.voucherService.remove(req.user.userId, id);
   }
 }

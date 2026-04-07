@@ -297,9 +297,7 @@ export class VoucherService {
         }
 
         if (parsedExpiredDate <= new Date()) {
-          throw new BadRequestException(
-            'Expired date must be in the future',
-          );
+          throw new BadRequestException('Expired date must be in the future');
         }
 
         dataToUpdate.ExpiredDate = parsedExpiredDate;
@@ -354,8 +352,94 @@ export class VoucherService {
     }
   }
 
-  // Hàm xóa voucher, hiện chưa triển khai
-  remove(id: number) {
-    return `This action removes a #${id} voucher`;
+  // Xóa mềm voucher của shop owner đang đăng nhập
+  async remove(userId: number, id: number) {
+    try {
+      // Tìm store của user hiện tại
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          OwnerId: userId,
+          IsDeleted: false,
+          IsActive: true,
+        },
+        select: {
+          StoreId: true,
+        },
+      });
+
+      // Nếu user chưa có store thì báo lỗi
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      // Tìm voucher cần xóa
+      const existingVoucher = await this.prisma.vouchers.findUnique({
+        where: {
+          VoucherId: id,
+        },
+        select: {
+          VoucherId: true,
+          StoreId: true,
+          Code: true,
+          IsActive: true,
+        },
+      });
+
+      // Nếu voucher không tồn tại thì báo lỗi
+      if (!existingVoucher) {
+        throw new NotFoundException('Voucher not found');
+      }
+
+      // Kiểm tra voucher có thuộc shop đang đăng nhập không
+      if (existingVoucher.StoreId !== store.StoreId) {
+        throw new BadRequestException(
+          'You are not allowed to delete this voucher',
+        );
+      }
+
+      // Nếu voucher đã inactive rồi thì báo lỗi
+      if (!existingVoucher.IsActive) {
+        throw new BadRequestException('Voucher has already been deleted');
+      }
+
+      // Xóa mềm bằng cách chuyển IsActive = false
+      const deletedVoucher = await this.prisma.vouchers.update({
+        where: {
+          VoucherId: id,
+        },
+        data: {
+          IsActive: false,
+        },
+        select: {
+          VoucherId: true,
+          StoreId: true,
+          Code: true,
+          DiscountPercent: true,
+          Quantity: true,
+          ExpiredDate: true,
+          IsActive: true,
+        },
+      });
+
+      // Xóa cache để đồng bộ dữ liệu mới
+      await this.redis.deleteByPattern('voucher:best:*');
+
+      return {
+        message: 'Voucher deleted successfully',
+        data: {
+          voucherId: deletedVoucher.VoucherId,
+          storeId: deletedVoucher.StoreId,
+          code: deletedVoucher.Code,
+          discountPercent: deletedVoucher.DiscountPercent,
+          quantity: deletedVoucher.Quantity,
+          expiredDate: deletedVoucher.ExpiredDate,
+          isActive: deletedVoucher.IsActive,
+          applyScope: 'ALL_PRODUCTS_IN_SHOP',
+        },
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 }
