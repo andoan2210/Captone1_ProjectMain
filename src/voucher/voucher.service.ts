@@ -29,12 +29,12 @@ export class VoucherService {
       // Chuyển ngày hết hạn từ string sang Date
       const parsedExpiredDate = new Date(expiredDate);
 
-      // Kiểm tra ngày hết hạn có hợp lệ không
+      // Kiểm tra ngày hết hạn hợp lệ
       if (Number.isNaN(parsedExpiredDate.getTime())) {
         throw new BadRequestException('Expired date is invalid');
       }
 
-      // Kiểm tra ngày hết hạn phải lớn hơn hiện tại
+      // Kiểm tra ngày hết hạn phải ở tương lai
       if (parsedExpiredDate <= new Date()) {
         throw new BadRequestException('Expired date must be in the future');
       }
@@ -57,7 +57,7 @@ export class VoucherService {
         throw new NotFoundException('Store not found');
       }
 
-      // Kiểm tra mã voucher đã tồn tại chưa
+      // Kiểm tra code voucher đã tồn tại chưa
       const existingVoucher = await this.prisma.vouchers.findUnique({
         where: {
           Code: normalizedCode,
@@ -72,7 +72,7 @@ export class VoucherService {
         throw new BadRequestException('Voucher code already exists');
       }
 
-      // Tạo voucher mới trong database
+      // Tạo voucher mới
       const createdVoucher = await this.prisma.vouchers.create({
         data: {
           StoreId: store.StoreId,
@@ -93,10 +93,9 @@ export class VoucherService {
         },
       });
 
-      // Xóa cache top voucher để lần sau lấy dữ liệu mới
+      // Xóa cache top voucher
       await this.redis.deleteByPattern('voucher:best:*');
 
-      // Trả kết quả cho frontend
       return {
         message: 'Voucher created successfully',
         data: {
@@ -111,13 +110,12 @@ export class VoucherService {
         },
       };
     } catch (error) {
-      // Ghi log lỗi và throw lại
       this.logger.error(error);
       throw error;
     }
   }
 
-  // Lấy danh sách voucher tốt nhất, có cache redis
+  // Lấy danh sách voucher tốt nhất, ưu tiên discount cao và còn hạn
   async getVoucherByBest(limit: number) {
     try {
       const cacheKey = `voucher:best:${limit}`;
@@ -129,7 +127,7 @@ export class VoucherService {
         return JSON.parse(cached);
       }
 
-      // Nếu chưa có cache thì lấy từ database
+      // Nếu chưa có cache thì lấy từ DB
       const vouchers = await this.prisma.vouchers.findMany({
         take: limit,
         where: {
@@ -155,13 +153,12 @@ export class VoucherService {
         expiredDate: v.ExpiredDate,
       }));
 
-      // Lưu cache trong 60 giây
+      // Lưu cache 60 giây
       await this.redis.set(cacheKey, JSON.stringify(result), 60);
 
       this.logger.log('Voucher from DB');
       return result;
     } catch (error) {
-      // Ghi log lỗi và throw lại
       this.logger.error(error);
       throw error;
     }
@@ -187,7 +184,6 @@ export class VoucherService {
       throw new NotFoundException('Voucher not found');
     }
 
-    // Trả dữ liệu voucher
     return {
       voucherId: voucher.VoucherId,
       storeId: voucher.StoreId,
@@ -196,12 +192,166 @@ export class VoucherService {
       quantity: voucher.Quantity,
       expiredDate: voucher.ExpiredDate,
       isActive: voucher.IsActive,
+      applyScope: 'ALL_PRODUCTS_IN_SHOP',
     };
   }
 
-  // Hàm update voucher, hiện chưa triển khai
-  update(id: number, updateVoucherDto: UpdateVoucherDto) {
-    return `This action updates a #${id} voucher`;
+  // Cập nhật voucher của shop owner đang đăng nhập
+  async update(userId: number, id: number, updateVoucherDto: UpdateVoucherDto) {
+    try {
+      // Tìm store của user hiện tại
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          OwnerId: userId,
+          IsDeleted: false,
+          IsActive: true,
+        },
+        select: {
+          StoreId: true,
+        },
+      });
+
+      // Nếu user chưa có store thì báo lỗi
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      // Tìm voucher cần sửa
+      const existingVoucher = await this.prisma.vouchers.findUnique({
+        where: {
+          VoucherId: id,
+        },
+        select: {
+          VoucherId: true,
+          StoreId: true,
+          Code: true,
+          DiscountPercent: true,
+          Quantity: true,
+          ExpiredDate: true,
+          IsActive: true,
+        },
+      });
+
+      // Nếu voucher không tồn tại thì báo lỗi
+      if (!existingVoucher) {
+        throw new NotFoundException('Voucher not found');
+      }
+
+      // Kiểm tra voucher có thuộc shop đang đăng nhập không
+      if (existingVoucher.StoreId !== store.StoreId) {
+        throw new BadRequestException(
+          'You are not allowed to update this voucher',
+        );
+      }
+
+      const dataToUpdate: {
+        Code?: string;
+        DiscountPercent?: number;
+        Quantity?: number;
+        ExpiredDate?: Date;
+        IsActive?: boolean;
+      } = {};
+
+      // Nếu có gửi code mới thì chuẩn hóa và check trùng
+      if (updateVoucherDto.code !== undefined) {
+        const normalizedCode = updateVoucherDto.code.trim().toUpperCase();
+
+        if (!normalizedCode) {
+          throw new BadRequestException('Voucher code must not be empty');
+        }
+
+        if (normalizedCode !== existingVoucher.Code) {
+          const duplicateVoucher = await this.prisma.vouchers.findUnique({
+            where: {
+              Code: normalizedCode,
+            },
+            select: {
+              VoucherId: true,
+            },
+          });
+
+          if (duplicateVoucher) {
+            throw new BadRequestException('Voucher code already exists');
+          }
+        }
+
+        dataToUpdate.Code = normalizedCode;
+      }
+
+      // Nếu có gửi discount mới thì cập nhật
+      if (updateVoucherDto.discountPercent !== undefined) {
+        dataToUpdate.DiscountPercent = updateVoucherDto.discountPercent;
+      }
+
+      // Nếu có gửi quantity mới thì cập nhật
+      if (updateVoucherDto.quantity !== undefined) {
+        dataToUpdate.Quantity = updateVoucherDto.quantity;
+      }
+
+      // Nếu có gửi expiredDate mới thì kiểm tra rồi cập nhật
+      if (updateVoucherDto.expiredDate !== undefined) {
+        const parsedExpiredDate = new Date(updateVoucherDto.expiredDate);
+
+        if (Number.isNaN(parsedExpiredDate.getTime())) {
+          throw new BadRequestException('Expired date is invalid');
+        }
+
+        if (parsedExpiredDate <= new Date()) {
+          throw new BadRequestException(
+            'Expired date must be in the future',
+          );
+        }
+
+        dataToUpdate.ExpiredDate = parsedExpiredDate;
+      }
+
+      // Nếu có gửi isActive mới thì cập nhật
+      if (updateVoucherDto.isActive !== undefined) {
+        dataToUpdate.IsActive = updateVoucherDto.isActive;
+      }
+
+      // Nếu body rỗng thì báo lỗi
+      if (Object.keys(dataToUpdate).length === 0) {
+        throw new BadRequestException('No data provided to update');
+      }
+
+      // Update voucher trong DB
+      const updatedVoucher = await this.prisma.vouchers.update({
+        where: {
+          VoucherId: id,
+        },
+        data: dataToUpdate,
+        select: {
+          VoucherId: true,
+          StoreId: true,
+          Code: true,
+          DiscountPercent: true,
+          Quantity: true,
+          ExpiredDate: true,
+          IsActive: true,
+        },
+      });
+
+      // Xóa cache để đồng bộ dữ liệu mới
+      await this.redis.deleteByPattern('voucher:best:*');
+
+      return {
+        message: 'Voucher updated successfully',
+        data: {
+          voucherId: updatedVoucher.VoucherId,
+          storeId: updatedVoucher.StoreId,
+          code: updatedVoucher.Code,
+          discountPercent: updatedVoucher.DiscountPercent,
+          quantity: updatedVoucher.Quantity,
+          expiredDate: updatedVoucher.ExpiredDate,
+          isActive: updatedVoucher.IsActive,
+          applyScope: 'ALL_PRODUCTS_IN_SHOP',
+        },
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 
   // Hàm xóa voucher, hiện chưa triển khai

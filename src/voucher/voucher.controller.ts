@@ -31,26 +31,29 @@ export class VoucherController {
     return this.voucherService.create(req.user.userId, createVoucherDto);
   }
 
-  // Lấy danh sách voucher tốt nhất
+  // Lấy danh sách voucher nổi bật
   @Get('top-voucher')
   getVoucherByBest(@Query('limit') limit: number) {
     const limitNumber = Number(limit) || 5;
     return this.voucherService.getVoucherByBest(limitNumber);
   }
 
-  // Lấy chi tiết 1 voucher theo id
+  // Lấy chi tiết voucher theo id
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.voucherService.findOne(id);
   }
 
-  // Cập nhật voucher theo id
+  // Cập nhật voucher của shop đang đăng nhập
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
   @Patch(':id')
   update(
+    @Req() req,
     @Param('id', ParseIntPipe) id: number,
     @Body() updateVoucherDto: UpdateVoucherDto,
   ) {
-    return this.voucherService.update(id, updateVoucherDto);
+    return this.voucherService.update(req.user.userId, id, updateVoucherDto);
   }
 
   // Xóa voucher theo id
