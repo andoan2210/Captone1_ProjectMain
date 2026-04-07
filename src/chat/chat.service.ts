@@ -177,6 +177,12 @@ export class ChatService {
     }
   }
 
+  async getConversationById(id: number) {
+    return this.prisma.conversations.findUnique({
+      where: { ConversationId: id },
+    });
+  }
+
   create(createChatDto: CreateChatDto) {
     return 'This action adds a new chat';
   }
