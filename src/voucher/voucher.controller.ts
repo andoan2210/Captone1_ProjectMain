@@ -18,7 +18,7 @@ import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/passport/roles.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/enums/role.enum';
-
+import { GetMyVouchersDto } from './dto/get-my-vouchers.dto';
 @Controller('voucher')
 export class VoucherController {
   constructor(private readonly voucherService: VoucherService) {}
@@ -63,4 +63,12 @@ export class VoucherController {
   remove(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.voucherService.remove(req.user.userId, id);
   }
+
+  // Lấy danh sách voucher của shop owner đang đăng nhập
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SHOP_OWNER)
+@Get('my/list')
+getMyVouchers(@Req() req, @Query() query: GetMyVouchersDto) {
+  return this.voucherService.getMyVouchers(req.user.userId, query);
+}
 }
