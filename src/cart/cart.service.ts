@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateCartDto } from './dto/create-cart.dto';
 import { UpdateCartDto } from './dto/update-cart.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -79,5 +79,37 @@ export class CartService {
 
   remove(id: number) {
     return `This action removes a #${id} cart`;
+  }
+
+  async removeCartItem(userId: number, cartItemId: number) {
+    try {
+      // 1. Kiểm tra CartItem tồn tại và thuộc về cart của user
+      const cartItem = await this.prisma.cartItems.findUnique({
+        where: { CartItemId: cartItemId },
+        include: {
+          Carts: true
+        }
+      });
+
+      if (!cartItem) {
+        throw new NotFoundException('Không tìm thấy sản phẩm trong giỏ hàng');
+      }
+
+      // 2. Kiểm tra quyền (cart thuộc user)
+      if (cartItem.Carts.UserId !== userId) {
+        throw new ForbiddenException('Bạn không có quyền xóa sản phẩm này');
+      }
+
+      // 3. Xoá record trong cart items
+      await this.prisma.cartItems.delete({
+        where: { CartItemId: cartItemId }
+      });
+
+      this.logger.log(`CartItem ${cartItemId} removed successfully by user ${userId}`);
+      return { message: 'Xóa sản phẩm khỏi giỏ hàng thành công' };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 }

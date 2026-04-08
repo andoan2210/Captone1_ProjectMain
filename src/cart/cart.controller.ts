@@ -33,4 +33,10 @@ export class CartController {
   remove(@Param('id') id: string) {
     return this.cartService.remove(+id);
   }
+
+  @Delete('remove-item/:cartItemId')
+  @UseGuards(JwtAuthGuard)
+  removeItem(@Request() req, @Param('cartItemId') cartItemId: string) {
+    return this.cartService.removeCartItem(req.user.userId, +cartItemId);
+  }
 }
