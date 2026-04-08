@@ -2,33 +2,25 @@ import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/commo
 import { PaymentService } from './payment.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
+import { MomoIpnDto } from './dto/momo-ipn.dto';
+import { PaymentFactory } from './payment.factory';
 
 @Controller('payment')
 export class PaymentController {
-  constructor(private readonly paymentService: PaymentService) {}
+  constructor(private readonly paymentService: PaymentService,
+    private readonly paymentFactory: PaymentFactory,
+  ) {}
 
-  @Post()
-  create(@Body() createPaymentDto: CreatePaymentDto) {
-    return this.paymentService.create(createPaymentDto);
-  }
+  @Post('ipn')
+  async ipn(@Body() body: MomoIpnDto) {
+    const strategy = this.paymentFactory.get('MOMO');
 
-  @Get()
-  findAll() {
-    return this.paymentService.findAll();
-  }
+    if (!strategy?.verifySignature(body)) {
+      return { message: 'Invalid signature' };
+    }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.paymentService.findOne(+id);
-  }
+    await this.paymentService.handleIPN(body);
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updatePaymentDto: UpdatePaymentDto) {
-    return this.paymentService.update(+id, updatePaymentDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.paymentService.remove(+id);
+    return { message: 'OK' };
   }
 }

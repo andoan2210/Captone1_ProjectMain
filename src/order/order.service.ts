@@ -4,13 +4,215 @@ import { UpdateOrderDto } from './dto/update-order.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { dmmfToRuntimeDataModel } from '@prisma/client/runtime/library';
 import { throwError } from 'rxjs';
+import { PreviewDto } from './dto/preview.dto';
+import { PaymentFactory } from 'src/payment/payment.factory';
+import { Logger } from '@nestjs/common';
 
 @Injectable()
 export class OrderService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(OrderService.name);
 
-  create(createOrderDto: CreateOrderDto) {
-    return 'This action adds a new order';
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly paymentFactory: PaymentFactory,
+  ) {}
+
+  async createOrder(userId: number, dto: CreateOrderDto) {
+    this.logger.log(`[CreateOrder] Bắt đầu tạo đơn hàng mới cho UserId: ${userId}`);
+    try {
+      const resultData = await this.prisma.$transaction(async (tx) => {
+        let itemsInfo: any[] = [];
+        let total = 0;
+        let storeId: number | null = null;
+
+        if (dto.type === 'CART') {
+          if (!dto.selectedItems?.length) throw new Error('No items selected');
+
+          const cartItems = await tx.cartItems.findMany({
+            where: {
+              Carts: { UserId: userId },
+              CartItemId: { in: dto.selectedItems },
+            },
+            include: {
+              ProductVariants: { include: { Products: true } },
+            },
+          });
+
+          if (!cartItems.length) throw new Error('Cart items not found');
+
+          // Check store id sau dung voucher
+          storeId = cartItems[0].ProductVariants.Products.StoreId;
+          const hasMultipleStores = cartItems.some(i => i.ProductVariants.Products.StoreId !== storeId);
+          if (hasMultipleStores) {
+             throw new Error('Vui lòng chọn các sản phẩm trong cùng một Shop để đặt hàng!');
+          }
+
+          itemsInfo = cartItems.map(i => ({
+            variantId: i.ProductVariants.VariantId,
+            productId: i.ProductVariants.ProductId,
+            price: i.ProductVariants.Price ?? i.ProductVariants.Products.Price,
+            quantity: i.Quantity,
+          }));
+        } else if (dto.type === 'BUY_NOW') {
+          if (!dto.variantId || !dto.quantity) throw new Error('Missing variant or quantity');
+
+          const variant = await tx.productVariants.findUnique({
+            where: { VariantId: dto.variantId },
+            include: { Products: true },
+          });
+
+          if (!variant) throw new Error('Variant not found');
+          storeId = variant.Products.StoreId;
+
+          itemsInfo = [{
+            variantId: variant.VariantId,
+            productId: variant.ProductId,
+            price: variant.Price ?? variant.Products.Price,
+            quantity: dto.quantity,
+          }];
+        }
+
+        // UPDATE FOR STOCK 
+        for (const item of itemsInfo) {
+          const itemTotal = Number(item.price) * item.quantity;
+          total += itemTotal;
+            // lam theo kieu update de tranh loi race condition
+          const updateStock = await tx.productVariants.updateMany({
+            where: {
+              VariantId: item.variantId,
+              Stock: { gte: item.quantity }, 
+            },
+            data: { Stock: { decrement: item.quantity } },
+          });
+
+          if (updateStock.count === 0) {
+            throw new Error(`Sản phẩm (Variant ID: ${item.variantId}) đã hết hàng hoặc không đủ số lượng.`);
+          }
+        }
+
+        // UPDATE FOR VOUCHER
+        let discount = 0;
+        let appliedVoucherId: number | null = null;
+        if (dto.voucherCode) {
+          const voucher = await tx.vouchers.findUnique({ where: { Code: dto.voucherCode } });
+          if (!voucher || !voucher.IsActive) throw new Error('Voucher không hợp lệ');
+          if (voucher.ExpiredDate && voucher.ExpiredDate < new Date()) throw new Error('Voucher đã hết hạn');
+          if (voucher.StoreId !== storeId) throw new Error('Voucher không áp dụng cho shop này');
+
+          const updateVoucher = await tx.vouchers.updateMany({
+            where: {
+              VoucherId: voucher.VoucherId,
+              Quantity: { gte: 1 },
+            },
+            data: { Quantity: { decrement: 1 } },
+          });
+
+          if (updateVoucher.count === 0) {
+            throw new Error('Voucher đã hết lượt sử dụng');
+          }
+
+          appliedVoucherId = voucher.VoucherId;
+          const discountPercent = voucher.DiscountPercent || 0;
+          discount = (total * discountPercent) / 100;
+        }
+
+        const finalTotal = total - discount + 30000;
+
+        // GET ADDRESS
+        const address = await tx.userAddresses.findUnique({
+          where: { AddressId: dto.addressId, UserId: userId }
+        });
+        if (!address) throw new Error('Địa chỉ không hợp lệ');
+
+        const shippingAddressString = `${address.FullName}, ${address.Phone} - ${address.DetailAddress}, ${address.Ward}, ${address.District}, ${address.Province}`;
+
+        //  INSERT ORDER
+        const newOrder = await tx.orders.create({
+          data: {
+            UserId: userId,
+            StoreId: storeId!,
+            TotalAmount: finalTotal,
+            OrderStatus: 'Pending',
+            PaymentStatus: 'Unpaid',
+            ShippingAddress: shippingAddressString,
+            AddressId: address.AddressId,
+          },
+        });
+
+        //  INSERT ORDER ITEMS
+        await tx.orderItems.createMany({
+          data: itemsInfo.map(item => ({
+            OrderId: newOrder.OrderId,
+            VariantId: item.variantId,
+            Quantity: item.quantity,
+            UnitPrice: item.price,
+          })),
+        });
+
+        //  INSERT ORDER VOUCHER
+        if (appliedVoucherId) {
+          await tx.orderVouchers.create({
+            data: {
+              OrderId: newOrder.OrderId,
+              VoucherId: appliedVoucherId,
+            },
+          });
+        }
+
+        // tao payment record cho thanh toan
+        const paymentRecord = await tx.payments.create({
+          data: {
+            OrderId: newOrder.OrderId,
+            PaymentMethod: dto.paymentMethod, 
+            Amount: finalTotal,
+            Status: 'Pending',
+          },
+        });
+
+        // xao cart
+        if (dto.type === 'CART' && dto.selectedItems) {
+          const cart = await tx.carts.findUnique({ where: { UserId: userId } });
+          if (cart) {
+            await tx.cartItems.deleteMany({
+              where: {
+                CartId: cart.CartId,
+                CartItemId: { in: dto.selectedItems },
+              },
+            });
+          }
+        }
+
+        return {
+          message: 'Đặt hàng thành công',
+          order: newOrder,
+          payment: paymentRecord,
+        };
+      });
+
+      let payUrl: string | undefined;
+
+      if (dto.paymentMethod === 'MOMO') {
+        this.logger.log(`[CreateOrder] Kích hoạt thanh toán MoMo cho OrderId: ${resultData.order.OrderId}...`);
+        const strategy = this.paymentFactory.get('MOMO');
+        if (strategy) {
+          const paymentResult = await strategy.createPayment({
+            orderId: resultData.order.OrderId,
+            amount: Number(resultData.order.TotalAmount),
+          });
+          payUrl = paymentResult.payUrl;
+          this.logger.log(`[CreateOrder] Sinh thành công Link thanh toán MoMo cho OrderId: ${resultData.order.OrderId}`);
+        }
+      }
+
+      return {
+        ...resultData,
+        payUrl,
+      };
+
+    } catch (error) {
+      this.logger.error(`[CreateOrder Error] Lỗi khi tạo đơn hàng: ${error.message}`);
+      throw new Error(error.message || 'Tạo đơn hàng thất bại');
+    }
   }
   async getOrderForShop(userId : number){
     try{
@@ -192,6 +394,7 @@ export class OrderService {
 
 
   async cancelOrder(userId: number,orderId: number) {
+    this.logger.log(`[CancelOrder] UserId ${userId} yêu cầu hủy OrderId ${orderId}`);
     try {
       return await this.prisma.$transaction(async (tx) => {
 
@@ -218,52 +421,63 @@ export class OrderService {
                     PaymentStatus: 'Unpaid',
              },
           });
-
+          this.logger.log(`[CancelOrder] Đã hủy đơn hàng OrderId ${orderId} (Chưa thanh toán)`);
           return { message: 'Cancelled (no payment)' };
         }
 
         // đã thanh toán , Refund momo
-        // const refundRes = await this.momoService.refund({
-        //   orderId: order.orderId,
-        //   amount: order.totalAmount,
-        //   transId: payment.transactionCode,
-        // });
+        this.logger.log(`[CancelOrder] Đơn OrderId ${orderId} ĐÃ THANH TOÁN. Đang tiến hành gọi Refund sang: ${payment.PaymentMethod}...`);
+        const strategy = this.paymentFactory.get(payment.PaymentMethod);
+        if (!strategy || !strategy.refund) {
+          throw new BadRequestException('Phương thức thanh toán này không hỗ trợ hoàn tiền tự động');
+        }
 
-        // if (refundRes.resultCode !== 0) {
-        //   throw new AppException('Refund failed from MoMo');
-        // }
+        const refundRes = await strategy.refund({
+          orderId: order.OrderId,
+          amount: Number(order.TotalAmount),
+          transId: payment.TransactionCode!,
+        });
+
+        if (refundRes.resultCode !== 0) {
+          throw new BadRequestException('Refund failed from MoMo: ' + refundRes.message);
+        }
 
         // refund success, + stock
-        // for (const item of order.OrderItems) {
-        //   await tx.productVariants.update({
-        //     where: { VariantId: item.VariantId },
-        //     data: {
-        //       Stock: { increment: item.Quantity },
-        //     },
-        //   });
-        // }
+        for (const item of order.OrderItems) {
+          await tx.productVariants.update({
+            where: { VariantId: item.VariantId },
+            data: {
+              Stock: { increment: item.Quantity },
+            },
+          });
+        }
 
         // update payment
-        // await tx.payments.update({
-        //   where: { PaymentId: payment.PaymentId },
-        //   data: {
-        //     Status: 'Refunded',
-        //   },
-        // });
+        await tx.payments.update({
+          where: { PaymentId: payment.PaymentId },
+          data: {
+            Status: 'Failed', // Đổi về Failed vì SQL DB Constraint của bảng Payment không cho phép chữ "Refunded"
+            PaymentDate: new Date(),
+          },
+        });
 
         // update order
-        //  await tx.orders.update({
-        //    where: { OrderId : orderId },
-        //    data: {
-        //      OrderStatus: 'Cancelled',
-        //      PaymentStatus: 'Refunded',
-        //    },
-        //  });
+         await tx.orders.update({
+           where: { OrderId : orderId },
+           data: {
+             OrderStatus: 'Cancelled',
+             PaymentStatus: 'Refunded',
+           },
+         });
 
+        this.logger.log(`[CancelOrder] Đã HỦY ĐƠN & HOÀN TIỀN thành công cho OrderId ${orderId}`);
         return { message: 'Refund success' };
+      }, {
+        timeout: 20000, 
       });
 
     } catch (error) {
+      this.logger.error(`[CancelOrder Error] Lỗi khi hủy đơn hàng: ${error.message}`);
       throw new NotFoundException(error.message || 'Cancel failed');
     }
   }
@@ -345,6 +559,130 @@ export class OrderService {
     }
   }
 
+
+  async preview(userId: number, dto: PreviewDto) {
+    try {
+      let items: any[] = [];
+      let total = 0;
+
+      // CART FLOW
+    if (dto.type === 'CART') {
+      if (!dto.selectedItems?.length) {
+        throw new Error('No items selected');
+      }
+
+      const cartItems = await this.prisma.cartItems.findMany({
+        where: {
+          Carts: { UserId: userId },
+          CartItemId: { in: dto.selectedItems },
+        },
+        include: {
+          ProductVariants: {
+            include: {
+              Products: true,
+            },
+          },
+        },
+      });
+
+      if (!cartItems.length) {
+        throw new Error('Cart items not found');
+      }
+
+      items = cartItems.map(i => {
+        const price = i.ProductVariants.Price ?? i.ProductVariants.Products.Price;
+
+        // CHECK STOCK
+        if (i.ProductVariants.Stock < i.Quantity) {
+          throw new Error(
+            `Product ${i.ProductVariants.Products.ProductName} out of stock`,
+          );
+        }
+
+        const itemTotal = Number(price) * i.Quantity;
+        total += itemTotal;
+
+        return {
+          variantId: i.ProductVariants.VariantId,
+          productName: i.ProductVariants.Products.ProductName,
+          price,
+          quantity: i.Quantity,
+          total: itemTotal,
+          stock: i.ProductVariants.Stock,
+        };
+      });
+      }
+
+    //  BUY NOW 
+    if (dto.type === 'BUY_NOW') {
+      if (!dto.variantId || !dto.quantity) {
+        throw new Error('Missing variantId or quantity');
+      }
+
+      const variant = await this.prisma.productVariants.findUnique({
+        where: { VariantId: dto.variantId },
+        include: { Products: true },
+      });
+
+      if (!variant) throw new Error('Variant not found');
+
+      if (variant.Stock < dto.quantity) {
+        throw new Error('Out of stock');
+      }
+
+      const price = variant.Price ?? variant.Products.Price;
+      total = Number(price) * dto.quantity;
+
+      items = [
+        {
+          variantId: variant.VariantId,
+          productName: variant.Products.ProductName,
+          price,
+          quantity: dto.quantity,
+          total,
+          stock: variant.Stock,
+        },
+      ];
+    }
+
+    // GET VOUCHER
+    let discount = 0;
+    if (dto.voucherCode) {
+      const voucher = await this.prisma.vouchers.findUnique({
+        where: { Code: dto.voucherCode },
+      });
+
+      if (!voucher) {
+        throw new Error('Voucher is invalid');
+      }
+
+      if (!voucher.IsActive || (voucher.ExpiredDate && voucher.ExpiredDate < new Date())) {
+        throw new Error('Voucher is expired or inactive');
+      }
+
+      if (voucher.Quantity <= 0) {
+        throw new Error('Voucher is out of stock');
+      }
+
+      // voucher store
+      const discountPercent = voucher.DiscountPercent || 0;
+      discount = (total * discountPercent) / 100;
+    }
+
+    const finalTotal = total - discount + 30000;
+    
+    return {
+      items,
+      total,
+      shippingFee: 30000,
+      discount,
+      finalTotal,
+    };
+
+  } catch (error) {
+    throw new Error(error.message || 'Preview failed');
+  }
+}
 
   findAll() {
     return `This action returns all order`;
