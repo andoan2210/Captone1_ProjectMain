@@ -25,8 +25,11 @@ import { ReportModule } from './report/report.module';
 import { AddressModule } from './address/address.module';
 import { PaymentMethodModule } from './payment-method/payment-method.module';
 import { CategoryModule } from './category/category.module';
+import { ScheduleModule } from '@nestjs/schedule';
+
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
     ConfigModule.forRoot({ isGlobal: true, load: [redisConfig,mailConfig] }),

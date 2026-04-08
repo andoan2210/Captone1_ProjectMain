@@ -1,14 +1,20 @@
 import { IsEnum, IsArray, IsOptional, IsNumber, Min, IsString } from 'class-validator';
-import { PreviewType } from './preview.dto';
 
-export class CreateOrderDto {
+export enum PreviewType {
+  CART = 'CART',
+  BUY_NOW = 'BUY_NOW',
+}
+
+export class PreviewDto {
   @IsEnum(PreviewType)
   type: PreviewType;
 
+  // CART
   @IsOptional()
   @IsArray()
   selectedItems?: number[];
 
+  // BUY NOW
   @IsOptional()
   @IsNumber()
   variantId?: number;
@@ -21,10 +27,4 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   voucherCode?: string;
-
-  @IsNumber()
-  addressId: number;
-
-  @IsString()
-  paymentMethod: string; // VD: 'MOMO' hoặc 'COD'
 }
