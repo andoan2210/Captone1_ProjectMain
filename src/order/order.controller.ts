@@ -6,14 +6,17 @@ import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
 import { Role } from 'src/auth/enums/role.enum';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { RolesGuard } from 'src/auth/passport/roles.guard';
+import { PreviewDto } from './dto/preview.dto';
 
 @Controller('order')
 export class OrderController {
   constructor(private readonly orderService: OrderService) {}
 
   @Post()
-  create(@Body() createOrderDto: CreateOrderDto) {
-    return this.orderService.create(createOrderDto);
+  @Roles(Role.CLIENT)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  create(@Request() req, @Body() createOrderDto: CreateOrderDto) {
+    return this.orderService.createOrder(req.user.userId, createOrderDto);
   }
   @Get('order-shop')
   @Roles(Role.SHOP_OWNER)
@@ -42,6 +45,16 @@ export class OrderController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   cancelOrder(@Request() req, @Param('orderId') orderId: number) {
     return this.orderService.cancelOrder(req.user.userId, orderId);
+  }
+
+  @Post('preview')
+  @Roles(Role.CLIENT)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  preview(
+    @Request() req,
+    @Body() dto: PreviewDto,
+  ) {
+    return this.orderService.preview(req.user.id, dto);
   }
 
   @Get()
