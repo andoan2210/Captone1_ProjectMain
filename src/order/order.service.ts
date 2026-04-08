@@ -110,26 +110,40 @@ export class OrderService {
               },
             },
           },
+          OrderVouchers: {
+            include: {
+              Vouchers: true,
+            },
+          },
           Payments: true,
           Invoices: true,
         },
+        
       });
 
       if (!order) {
         throw new NotFoundException('Order not found');
       } 
 
-      const items = order.OrderItems.map(i => {
-      const product = i.ProductVariants.Products;
+      const voucher = order.OrderVouchers[0]?.Vouchers;
 
-        return {
-          productName: product.ProductName,
-          variant: `${i.ProductVariants.Size} - ${i.ProductVariants.Color}`,
-          quantity: i.Quantity,
-          price: i.UnitPrice,
-          total: Number(i.UnitPrice) * i.Quantity,
-      };
-    });
+      const discountPercent = voucher?.DiscountPercent || 0;
+      const subTotal = order.OrderItems.reduce((sum, item) => {
+        return sum + Number(item.UnitPrice) * item.Quantity;
+      }, 0);
+
+      const discountAmount = (subTotal * discountPercent) / 100;
+
+      const items = order.OrderItems.map(i => {
+        const product = i.ProductVariants.Products;
+          return {
+            productName: product.ProductName,
+            variant: `${i.ProductVariants.Size} - ${i.ProductVariants.Color}`,
+            quantity: i.Quantity,
+            price: i.UnitPrice,
+            total: Number(i.UnitPrice) * i.Quantity,
+          };
+      });
 
     return {
       orderId: order.OrderId,
@@ -140,6 +154,19 @@ export class OrderService {
 
       items,
 
+      subTotal,
+      discountPercent,
+      discountAmount,
+
+      totalAmount: order.TotalAmount, 
+
+      voucher: voucher
+        ? {
+            code: voucher.Code,
+            discountPercent: voucher.DiscountPercent,
+      }
+      : null,
+
       payment: order.Payments[0]
         ? {
             method: order.Payments[0].PaymentMethod,
@@ -148,14 +175,13 @@ export class OrderService {
           }
         : null,
 
-      totalAmount: order.TotalAmount,
       createdAt: order.CreatedAt,
 
       invoice: order.Invoices
         ? {
-          invoiceId: order.Invoices.InvoiceId,
-          invoiceNumber: order.Invoices.InvoiceNumber,
-        }
+            invoiceId: order.Invoices.InvoiceId,
+            invoiceNumber: order.Invoices.InvoiceNumber,
+          }
         : null,
     };
 
