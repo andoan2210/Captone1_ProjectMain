@@ -604,6 +604,7 @@ export class OrderService {
 
         return {
           variantId: i.ProductVariants.VariantId,
+          productImage : i.ProductVariants.Products.ThumbnailUrl,
           productName: i.ProductVariants.Products.ProductName,
           price,
           quantity: i.Quantity,
@@ -637,6 +638,7 @@ export class OrderService {
         {
           variantId: variant.VariantId,
           productName: variant.Products.ProductName,
+          productImage : variant.Products.ThumbnailUrl,
           price,
           quantity: dto.quantity,
           total,
