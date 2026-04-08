@@ -54,7 +54,7 @@ export class OrderController {
     @Request() req,
     @Body() dto: PreviewDto,
   ) {
-    return this.orderService.preview(req.user.id, dto);
+    return this.orderService.preview(req.user.userId, dto);
   }
 
   @Get()
