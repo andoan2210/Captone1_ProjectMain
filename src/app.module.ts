@@ -4,7 +4,7 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
-import { ConfigModule , ConfigService } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { UsersModule } from './users/users.module';
 import { LoggerModule } from 'nestjs-pino';
 import { AuthModule } from './auth/auth.module';
@@ -26,14 +26,19 @@ import { AddressModule } from './address/address.module';
 import { PaymentMethodModule } from './payment-method/payment-method.module';
 import { CategoryModule } from './category/category.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { TryonModule } from './tryon/tryon.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    // Rate limiting mặc định: 60 request / 60 giây cho toàn app
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
     PrismaModule,
     RedisModule,
-    ConfigModule.forRoot({ isGlobal: true, load: [redisConfig,mailConfig] }),
-    UsersModule, 
+    ConfigModule.forRoot({ isGlobal: true, load: [redisConfig, mailConfig] }),
+    UsersModule,
     LoggerModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
@@ -64,10 +69,14 @@ import { ScheduleModule } from '@nestjs/schedule';
     ReportModule,
     AddressModule,
     PaymentMethodModule,
-    CategoryModule,  
-    ChatModule, 
+    CategoryModule,
+    TryonModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Apply ThrottlerGuard toàn app
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

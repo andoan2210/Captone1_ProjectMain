@@ -1,0 +1,1 @@
+export const FASHN_CLIENT = 'FASHN_CLIENT';
