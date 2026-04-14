@@ -30,7 +30,11 @@ export class UsersService {
     private readonly mailService: MailService,
     private readonly redisService: RedisService,
     private readonly uploadService: UploadService,
-  ) {}
+  ) { }
+  //
+  generateRandomPassword(length = 8): string {
+    return Math.random().toString(36).slice(-length);
+  }
   async create(createDto: CreateUserDto) {
     try {
       const { name, email, password } = createDto;
@@ -125,7 +129,9 @@ export class UsersService {
         this.prisma.users.count(),
         this.prisma.users.findMany({
           skip,
-          take: limit,
+          take: limit, orderBy: {
+            UserId: 'desc', // 🔥 THÊM DÒNG NÀY
+          },
           select: {
             UserId: true,
             FullName: true,
@@ -133,6 +139,8 @@ export class UsersService {
             Phone: true,
             Role: true,
             IsActive: true,
+            CreatedAt: true,
+
           },
         }),
       ]);
@@ -466,20 +474,20 @@ export class UsersService {
     }
   }
 
-   async getProfile(userId: number) {
-     try {
+  async getProfile(userId: number) {
+    try {
       const user = await this.prisma.users.findUnique({
         where: { UserId: userId },
-          select: {
-              FullName: true,
-              Email: true,
-              Phone: true,
-              IsActive: true,
-              AvatarUrl: true,
-              DateOfBirth: true,
-              Gender: true,
-      },
-    });
+        select: {
+          FullName: true,
+          Email: true,
+          Phone: true,
+          IsActive: true,
+          AvatarUrl: true,
+          DateOfBirth: true,
+          Gender: true,
+        },
+      });
 
       if (!user) {
         throw new NotFoundException('User not found');
@@ -505,51 +513,142 @@ export class UsersService {
 
       throw new BadRequestException('Failed to fetch user');
     }
-  } 
+  }
   async changePassword(userID: number, changePassword: ChangePasswordDto) {
-  try {
+    try {
+      const user = await this.prisma.users.findUnique({
+        where: { UserId: userID },
+      });
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      if (!user.PasswordHash) {
+        throw new BadRequestException('User has no password set');
+      }
+
+      // check pass cu
+      const isMatch = await comparePasswordHelpers(
+        changePassword.oldPassword,
+        user.PasswordHash,
+      );
+
+      if (!isMatch) {
+        throw new BadRequestException('Old password is incorrect');
+      }
+
+      // hash
+      const hashPassword = await hashPasswordHelpers(
+        changePassword.newPassword,
+      );
+
+      await this.prisma.users.update({
+        where: { UserId: userID },
+        data: {
+          PasswordHash: hashPassword,
+          UpdatedAt: new Date(),
+        },
+      });
+      this.logger.log('Password updated successfully', { userId: userID });
+      return {
+        message: 'Password updated successfully',
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        'Failed to update password: ' + error.message,
+      );
+    }
+    //}
+  }
+  //
+  // ================= ADMIN =================
+
+  // CREATE
+  async createByAdmin(dto: any) {
+    try {
+      if (dto.role === 'ADMIN') {
+        throw new BadRequestException('Không được tạo ADMIN');
+      }
+
+      const rawPassword = this.generateRandomPassword(8);
+      const hashPassword = await hashPasswordHelpers(rawPassword);
+
+      const user = await this.prisma.users.create({
+        data: {
+          FullName: dto.fullName,
+          Email: dto.email,
+          PasswordHash: hashPassword,
+          Role: dto.role?.toUpperCase(),
+          IsActive: true,
+          CreatedAt: new Date(),
+        },
+      });
+
+      // 👉 mail KHÔNG được làm fail
+      try {
+        await this.mailService.sendAccountForUser(dto.email, rawPassword);
+      } catch (e) {
+        console.error('MAIL ERROR:', e);
+      }
+
+      return {
+        message: 'Tạo thành công',
+        data: user,
+      };
+    } catch (error) {
+      console.error('CREATE USER ERROR:', error);
+      throw new BadRequestException('Không thể tạo tài khoản');
+    }
+  }
+
+  // UPDATE (role + active)
+  async updateByAdmin(id: number, dto: any) {
+    if (dto.role === 'ADMIN') {
+      throw new BadRequestException('Không được cấp quyền ADMIN');
+    }
+
     const user = await this.prisma.users.findUnique({
-      where: { UserId: userID },
+      where: { UserId: id },
     });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    if (!user) throw new NotFoundException('User not found');
 
-    if (!user.PasswordHash) {
-      throw new BadRequestException('User has no password set');
-    }
-
-    // check pass cu
-    const isMatch = await comparePasswordHelpers(
-      changePassword.oldPassword,
-      user.PasswordHash,
-    );
-
-    if (!isMatch) {
-      throw new BadRequestException('Old password is incorrect');
-    }
-
-    // hash
-    const hashPassword = await hashPasswordHelpers(
-      changePassword.newPassword,
-    );
-
-    await this.prisma.users.update({
-      where: { UserId: userID },
+    return this.prisma.users.update({
+      where: { UserId: id },
       data: {
-        PasswordHash: hashPassword,
+        FullName: dto.fullName ?? user.FullName,
+        Role: dto.role ?? user.Role,
+        IsActive: dto.isActive ?? user.IsActive,
         UpdatedAt: new Date(),
       },
     });
-    this.logger.log('Password updated successfully', { userId: userID });
-    return {
-      message: 'Password updated successfully',
-    };
-    } catch (error) {
-    throw new BadRequestException(
-      'Failed to update password: ' + error.message,
-    );
   }
-}
+  // 🔒 KHÓA / MỞ (dùng PATCH /:id)
+  async toggleStatus(id: number, isActive: boolean) {
+    return this.prisma.users.update({
+      where: { UserId: id },
+      data: {
+        IsActive: isActive,
+        UpdatedAt: new Date(),
+      },
+    });
+  }
+
+  // ❌ XÓA THẬT + fallback
+  async deleteByAdmin(id: number) {
+    try {
+      return await this.prisma.users.delete({
+        where: { UserId: id },
+      });
+    } catch (error) {
+      console.log('DELETE ERROR:', error); // 👈 thêm dòng này
+      throw new Error('Không thể xóa tài khoản');
+    }
+
+    // ❌ KHÔNG fallback nữa
+    return await this.prisma.users.delete({
+      where: { UserId: id },
+    });
+  }
 }

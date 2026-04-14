@@ -22,8 +22,8 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private configService: ConfigService,
-    private logger : Logger ,
-  ) {}
+    private logger: Logger,
+  ) { }
 
   async validateUser(username: string, pass: string): Promise<any> {
     const user = await this.usersService.findByEmail(username);
@@ -41,7 +41,7 @@ export class AuthService {
       pass,
       user.PasswordHash,
     );
-    
+
     if (!isValidPassword) {
       throw new UnauthorizedException('Invalid password');
     }
@@ -55,14 +55,14 @@ export class AuthService {
   private async generateAccessToken(payload: TokenPayload): Promise<string> {
     return this.jwtService.signAsync(payload, {
       secret: this.configService.get<string>('JWT_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRED')as any,
+      expiresIn: this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRED') as any,
     });
   }
 
   private async generateRefreshToken(payload: TokenPayload): Promise<string> {
     return this.jwtService.signAsync(payload, {
       secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN')as any,
+      expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') as any,
     });
   }
 
@@ -88,40 +88,40 @@ export class AuthService {
   async refreshToken(
     refreshToken: string,
   ): Promise<{ accessToken: string }> {
-  try {
-    const payload = await this.jwtService.verifyAsync<TokenPayload>(
-      refreshToken,
-      {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      },
-    );
+    try {
+      const payload = await this.jwtService.verifyAsync<TokenPayload>(
+        refreshToken,
+        {
+          secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        },
+      );
 
-    const user = await this.usersService.findOne(+payload.sub);
+      const user = await this.usersService.findOne(+payload.sub);
 
-    if (!user) {
-      throw new UnauthorizedException('User not found');
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      const newPayload: TokenPayload = {
+        sub: String(user.UserId),
+        email: user.Email,
+        role: user.Role,
+      };
+
+      const accessToken = await this.generateAccessToken(newPayload);
+
+      return {
+        accessToken,
+      };
+    } catch (error) {
+      throw new UnauthorizedException('Invalid refresh token');
     }
-
-    const newPayload: TokenPayload = {
-      sub: String(user.UserId),
-      email: user.Email,
-      role: user.Role,
-    };
-
-    const accessToken = await this.generateAccessToken(newPayload);
-
-    return {
-      accessToken,
-    };
-  } catch (error) {
-    throw new UnauthorizedException('Invalid refresh token');
   }
-}
 
-  async validateGoogleUser(googleUser : CreateUserGoogleDto){
+  async validateGoogleUser(googleUser: CreateUserGoogleDto) {
     const user = await this.usersService.findByEmailGoogle(googleUser.email);
-    if(user){
-       return user;
+    if (user) {
+      return user;
     }
     return this.usersService.createUserGoogle(googleUser);
   }

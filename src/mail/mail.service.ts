@@ -14,7 +14,7 @@ export class MailService {
     private readonly redisService: RedisService,
     @Inject(forwardRef(() => UsersService))
     private readonly usersService: UsersService,
-  ) {}
+  ) { }
 
   async sendVerificationCode(
     email: string,
@@ -43,5 +43,31 @@ export class MailService {
     this.logger.log(`Verification code sent to ${email}`);
     return { message: `Verification code sent to ${email}` };
   }
+  //
+  async sendAccountForUser(email: string, password: string) {
+    try {
+      await this.mailerService.sendMail({
+        to: email,
+        subject: 'Tài khoản của bạn đã được tạo',
+        html: `
+        <div style="font-family: Arial; max-width: 600px; margin: auto;">
+          <h2>🎉 Tài khoản của bạn đã được tạo</h2>
 
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Mật khẩu:</strong> ${password}</p>
+
+          <p>👉 Vui lòng đăng nhập và đổi mật khẩu ngay để bảo mật.</p>
+
+          <hr />
+          <small>Đây là email tự động, vui lòng không trả lời.</small>
+        </div>
+      `,
+      });
+
+      this.logger.log(`Account email sent to ${email}`);
+    } catch (error) {
+      this.logger.error('Failed to send account email', error);
+      throw new BadRequestException('Không gửi được email');
+    }
+  }
 }
