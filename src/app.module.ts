@@ -29,6 +29,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TryonModule } from './tryon/tryon.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { ChatbotModule } from './chatbot/chatbot.module';
 
 @Module({
   imports: [
@@ -71,6 +72,7 @@ import { APP_GUARD } from '@nestjs/core';
     PaymentMethodModule,
     CategoryModule,
     TryonModule,
+    ChatbotModule,
   ],
   controllers: [AppController],
   providers: [
