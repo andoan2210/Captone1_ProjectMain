@@ -16,6 +16,8 @@ import {
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { SearchProductDto } from './dto/search-product.dto';
+import { GetSuggestionDto } from './dto/get-suggestion.dto';
 import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/passport/roles.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
@@ -127,6 +129,16 @@ export class ProductController {
   getProductByShopId(@Param('shopId') shopId: number , @Query('limit') limit: number) {
     const limitNumber = limit || 5;
     return this.productService.getProductShop(Number(shopId), limitNumber);
+  }
+
+  @Get('search')
+  searchProducts(@Query() searchDto: SearchProductDto) {
+    return this.productService.searchProducts(searchDto);
+  }
+
+  @Get('suggestions')
+  getSuggestions(@Query() suggestDto: GetSuggestionDto) {
+    return this.productService.getSuggestions(suggestDto.keyword || '');
   }
 
   @Get(':id')

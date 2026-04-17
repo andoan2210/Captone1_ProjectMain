@@ -7,8 +7,10 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Logger } from 'nestjs-pino';
-import { RedisService } from 'src/shared/service/redis.service';
 import { UploadService } from 'src/upload/upload.service';
+import { RedisService } from 'src/shared/service/redis.service';
+import { SearchProductDto } from './dto/search-product.dto';
+import Fuse from 'fuse.js';
 
 type ProductVariantInput = {
   size: string;
@@ -25,6 +27,178 @@ export class ProductService {
     private readonly redis: RedisService,
     private readonly uploadService: UploadService,
   ) {}
+
+  private readonly SYNONYMS: Record<string, string[]> = {
+    // Nhóm Áo
+    'áo': ['áo thun', 'áo sơ mi', 'áo khoác', 'áo phông', 'áo cộc', 't-shirt', 'sơ mi', 'áo len', 'áo gió'],
+    'áo nam': ['áo thun nam', 'sơ mi nam', 'áo khoác nam'],
+    'áo nữ': ['áo thun nữ', 'sơ mi nữ', 'áo kiểu', 'áo khoác nữ'],
+    
+    // Nhóm Quần
+    'quần': ['quần dài', 'quần ngắn', 'quần tây', 'quần jean', 'quần bò', 'quần short', 'quần lửng'],
+    'quần nam': ['quần tây nam', 'quần đùi nam', 'quần jean nam', 'short nam'],
+    'quần nữ': ['quần tây nữ', 'quần short nữ'],
+
+    // Nhóm Đầm/Váy (Nữ)
+    'đầm': ['váy', 'chân váy', 'đầm xòe', 'đầm dự tiệc', 'dress'],
+
+    // Chi tiết 
+    'áo thun': ['áo phông', 't-shirt', 'tshirt'],
+    'áo sơ mi': ['sơ mi', 'shirt'],
+    'áo khoác': ['jacket', 'coat', 'cardigan', 'áo ấm'],
+    'quần dài': ['quần tây', 'trousers', 'quần jean', 'jeans'],
+    'quần ngắn': ['quần đùi', 'short', 'quần cộc'],
+  };
+
+  private removeAccents(str: string): string {
+    if (!str) return '';
+    return str
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D');
+  }
+
+  async buildSearchCache() {
+    try {
+      this.logger.log('Building product search cache...');
+      const products = await this.prisma.products.findMany({
+        where: { IsActive: true, IsDeleted: false },
+        select: {
+          ProductId: true,
+          ProductName: true,
+          Price: true,
+          ThumbnailUrl: true,
+          Description: true,
+          CreatedAt: true,
+          Categories: { select: { CategoryId: true, CategoryName: true } },
+          ProductVariants: {
+            select: { OrderItems: { select: { Quantity: true } } },
+          },
+        },
+      });
+
+      const cacheData = products.map((p) => {
+        let sold = 0;
+        p.ProductVariants.forEach((pv) => {
+          pv.OrderItems.forEach((oi) => { sold += Number(oi.Quantity || 0); });
+        });
+
+        // Smart Tagging: Chỉ gắn tag nếu Tên hoặc Mô tả thực sự liên quan
+        let metaTags = "";
+        const searchBase = `${p.ProductName} ${p.Description || ""} ${p.Categories?.CategoryName || ""}`.toLowerCase();
+        
+        for (const [key, syns] of Object.entries(this.SYNONYMS)) {
+           if (searchBase.includes(key.toLowerCase()) || syns.some(s => searchBase.includes(s.toLowerCase()))) {
+               metaTags += ` ${key} ${syns.join(' ')}`;
+           }
+        }
+        
+        const finalMetaTags = `${metaTags} ${this.removeAccents(metaTags)}`;
+
+        return {
+          id: p.ProductId,
+          name: p.ProductName,
+          price: Number(p.Price),
+          thumbnail: p.ThumbnailUrl,
+          description: p.Description,
+          categoryId: p.Categories?.CategoryId,
+          categoryName: p.Categories?.CategoryName,
+          createdAt: new Date(p.CreatedAt || Date.now()).getTime(),
+          sold,
+          metaTags: finalMetaTags     
+        };
+      });
+
+      await this.redis.set('global:product_search_cache', JSON.stringify(cacheData), 60 * 60 * 24);
+      this.logger.log(`Built search cache for ${cacheData.length} products`);
+      return cacheData;
+    } catch (e) {
+      this.logger.error('Failed to build search cache', e);
+      return [];
+    }
+  }
+
+  private async getSearchSpace() {
+    const cached = await this.redis.get('global:product_search_cache');
+    if (cached) return JSON.parse(cached);
+    return await this.buildSearchCache();
+  }
+
+  async getSuggestions(keyword: string) {
+    if (!keyword || keyword.trim() === '') return [];
+    const data = await this.getSearchSpace();
+    const fuse = new Fuse<any>(data, {
+      keys: [
+        { name: 'name', weight: 0.9 },
+        { name: 'metaTags', weight: 0.1 }
+      ],
+      threshold: 0.25,
+      ignoreLocation: true,
+    });
+
+    const results = fuse.search(keyword).slice(0, 5);
+    return results.map(r => r.item.name);
+  }
+
+  async searchProducts(searchDto: SearchProductDto) {
+    const { keyword, categoryId, minPrice, maxPrice, sortBy = 'relevance', page = 1, limit = 20 } = searchDto;
+    
+    let data = await this.getSearchSpace();
+    
+    if (keyword && keyword.trim() !== '') {
+      const fuse = new Fuse<any>(data, {
+        keys: [
+            { name: 'name', weight: 0.7 },
+            { name: 'description', weight: 0.2 },
+            { name: 'metaTags', weight: 0.1 }
+        ],
+        threshold: 0.25, 
+        ignoreLocation: true,
+      });
+      const results = fuse.search(keyword);
+      data = results.map(r => r.item);
+    }
+
+    if (categoryId) data = data.filter((p: any) => p.categoryId === Number(categoryId));
+    if (minPrice !== undefined) data = data.filter((p: any) => p.price >= Number(minPrice));
+    if (maxPrice !== undefined) data = data.filter((p: any) => p.price <= Number(maxPrice));
+
+    if (sortBy !== 'relevance' || !keyword) {
+      data.sort((a: any, b: any) => {
+        if (sortBy === 'sales') return b.sold - a.sold;
+        if (sortBy === 'price-asc') return a.price - b.price;
+        if (sortBy === 'price-desc') return b.price - a.price;
+        if (sortBy === 'ctime') return b.createdAt - a.createdAt;
+        return b.createdAt - a.createdAt; 
+      });
+    }
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const skip = (pageNum - 1) * limitNum;
+    const paginatedItems = data.slice(skip, skip + limitNum);
+
+    const returnData = paginatedItems.map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      thumbnail: p.thumbnail,
+      categoryName: p.categoryName,
+      sold: p.sold
+    }));
+
+    return {
+      message: 'Search products successfully',
+      data: returnData,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        totalItems: data.length,
+        totalPages: Math.ceil(data.length / limitNum),
+      }
+    };
+  }
 
   private parseVariants(rawVariants: string): ProductVariantInput[] {
     let parsed: unknown;
@@ -310,6 +484,7 @@ export class ProductService {
       );
 
       await this.redis.deleteByPattern(`product:category:${createdProduct.CategoryId}:*`);
+      await this.redis.del('global:product_search_cache');
 
       return {
         message: 'Create product successfully',
@@ -908,6 +1083,7 @@ export class ProductService {
       );
 
       await this.redis.deleteByPattern(`product:category:${updatedProduct.CategoryId}:*`);
+      await this.redis.del('global:product_search_cache');
 
       return {
         message: 'Update product successfully',
@@ -1096,6 +1272,8 @@ export class ProductService {
       this.logger.log(
         `Delete product successfully: productId=${deletedProduct.ProductId}, storeId=${deletedProduct.StoreId}`,
       );
+
+      await this.redis.del('global:product_search_cache');
 
       return {
         message: 'Delete product successfully',
