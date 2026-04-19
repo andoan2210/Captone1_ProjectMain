@@ -333,6 +333,10 @@ export class ProductService {
     return hasBodyData || hasThumbnail || hasNewImages;
   }
 
+// API POST /product
+// Dùng để shopowner tạo sản phẩm mới cho shop của mình.
+// Sản phẩm mới tạo sẽ mặc định ở trạng thái PENDING để chờ admin duyệt,
+// nên chưa được hiển thị ra danh sách public.
   async create(
     ownerUserId: number,
     createProductDto: CreateProductDto,
@@ -410,6 +414,12 @@ export class ProductService {
             ThumbnailUrl: thumbnailUrl,
             IsActive: createProductDto.isActive ?? true,
             IsDeleted: false,
+
+            // Approval flow: sản phẩm mới tạo phải chờ admin duyệt
+            ApprovalStatus: 'PENDING',
+            RejectReason: null,
+            ReviewedBy: null,
+            ReviewedAt: null,
           },
           select: {
             ProductId: true,
@@ -420,6 +430,7 @@ export class ProductService {
             Price: true,
             ThumbnailUrl: true,
             IsActive: true,
+            ApprovalStatus: true,
             CreatedAt: true,
           },
         });
@@ -529,149 +540,164 @@ export class ProductService {
   }
 
   async getNewProduct(limit: number) {
-    try {
-      const cacheKey = `product:new:${limit}`;
-      const cached = await this.redis.get(cacheKey);
-      if (cached) {
-        this.logger.log('Product from cache');
-        return JSON.parse(cached);
-      }
+  try {
+    const cacheKey = `product:new:${limit}`;
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      this.logger.log('Product from cache');
+      return JSON.parse(cached);
+    }
 
-      const product = await this.prisma.products.findMany({
-        take: limit,
-        where: {
-          IsActive: true,
-          IsDeleted: false,
+    const product = await this.prisma.products.findMany({
+      take: limit,
+      where: {
+        ApprovalStatus: 'APPROVED',
+        IsActive: true,
+        IsDeleted: false,
+      },
+      select: {
+        ProductId: true,
+        ProductName: true,
+        Price: true,
+        ThumbnailUrl: true,
+        CreatedAt: true,
+        Categories: {
+          select: {
+            CategoryName: true,
+          },
         },
-        select: {
-          ProductId: true,
-          ProductName: true,
-          Price: true,
-          ThumbnailUrl: true,
-          CreatedAt: true,
-          Categories: {
-            select: {
-              CategoryName: true,
+      },
+      orderBy: {
+        CreatedAt: 'desc',
+      },
+    });
+
+    if (product.length === 0) {
+      this.logger.error('Product not found');
+      return [];
+    }
+
+    this.logger.log(product);
+
+    const result = product.map((p) => ({
+      ProductId: p.ProductId,
+      ProductName: p.ProductName,
+      Price: p.Price,
+      ThumbnailUrl: p.ThumbnailUrl,
+      CreatedAt: p.CreatedAt,
+      CategoryName: p.Categories?.CategoryName ?? null,
+    }));
+
+    await this.redis.set(cacheKey, JSON.stringify(result), 60 * 1);
+    this.logger.log('Product from DB');
+
+    return result;
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
+  }
+}
+
+  async getBestSellerProduct(limit: number) {
+  try {
+    const cacheKey = `product:best-seller:${limit}`;
+    const cached = await this.redis.get(cacheKey);
+
+    if (cached) {
+      this.logger.log('Best seller product from cache');
+      return JSON.parse(cached);
+    }
+
+    const product = await this.prisma.products.findMany({
+      take: limit,
+      where: {
+        // Chỉ cho public thấy sản phẩm đã được admin duyệt
+        ApprovalStatus: 'APPROVED',
+        // Sản phẩm phải đang active
+        IsActive: true,
+        // Và chưa bị xóa mềm
+        IsDeleted: false,
+      },
+      select: {
+        ProductId: true,
+        ProductName: true,
+        Price: true,
+        ThumbnailUrl: true,
+        Categories: {
+          select: {
+            CategoryName: true,
+          },
+        },
+        ProductVariants: {
+          select: {
+            OrderItems: {
+              select: {
+                Quantity: true,
+              },
             },
           },
         },
-        orderBy: {
-          CreatedAt: 'desc',
-        },
-      });
+      },
+    });
 
-      if (product.length === 0) {
-        this.logger.error('Product not found');
-        return [];
-      }
-
-      this.logger.log(product);
-
-      const result = product.map((p) => ({
-        ProductId: p.ProductId,
-        ProductName: p.ProductName,
-        Price: p.Price,
-        ThumbnailUrl: p.ThumbnailUrl,
-        CreatedAt: p.CreatedAt,
-        CategoryName: p.Categories?.CategoryName ?? null,
-      }));
-
-      await this.redis.set(cacheKey, JSON.stringify(result), 60 * 1);
-      this.logger.log('Product from DB');
-
-      return result;
-    } catch (error) {
-      this.logger.error(error);
-      throw error;
+    if (product.length === 0) {
+      this.logger.error('Product not found');
+      return [];
     }
+
+    const result = product
+      .map((p) => {
+        const sold = p.ProductVariants.reduce((total, variant) => {
+          const variantSold = variant.OrderItems.reduce(
+            (sum, item) => sum + item.Quantity,
+            0,
+          );
+          return total + variantSold;
+        }, 0);
+
+        return {
+          ProductId: p.ProductId,
+          ProductName: p.ProductName,
+          Price: p.Price,
+          ThumbnailUrl: p.ThumbnailUrl,
+          CategoryName: p.Categories?.CategoryName ?? null,
+          Sold: sold,
+        };
+      })
+      .sort((a, b) => b.Sold - a.Sold)
+      .slice(0, limit);
+
+    await this.redis.set(cacheKey, JSON.stringify(result), 60 * 1);
+    this.logger.log('Best seller product from DB');
+
+    return result;
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
   }
-
-  async getBestSellerProduct(limit: number) {
-    try {
-      const cacheKey = `product:best-seller:${limit}`;
-      const cached = await this.redis.get(cacheKey);
-      if (cached) {
-        this.logger.log('Product from cache');
-        return JSON.parse(cached);
-      }
-
-      const products = await this.prisma.$queryRaw<
-        {
-          ProductId: number;
-          ProductName: string;
-          Price: number;
-          ThumbnailUrl: string;
-          CreatedAt: Date;
-          CategoryName: string;
-          Sold: number;
-        }[]
-      >`
-      SELECT TOP (${limit})
-        p.ProductId,
-        p.ProductName,
-        p.Price,
-        p.ThumbnailUrl,
-        p.CreatedAt,
-        c.CategoryName,
-        SUM(oi.Quantity) as Sold
-      FROM OrderItems oi
-      JOIN ProductVariants pv 
-        ON pv.VariantId = oi.VariantId
-      JOIN Products p 
-        ON p.ProductId = pv.ProductId
-        AND p.IsActive = 1 
-        AND p.IsDeleted = 0
-      LEFT JOIN Categories c 
-        ON c.CategoryId = p.CategoryId
-      GROUP BY 
-        p.ProductId,
-        p.ProductName,
-        p.Price,
-        p.ThumbnailUrl,
-        p.CreatedAt,
-        c.CategoryName
-      ORDER BY Sold DESC
-      `;
-
-      if (!products || products.length === 0) {
-        this.logger.error('Product not found');
-        return [];
-      }
-
-      const result = products.map((p) => ({
-        id: p.ProductId,
-        name: p.ProductName,
-        price: p.Price,
-        thumbnail: p.ThumbnailUrl,
-        categoryName: p.CategoryName,
-        sold: p.Sold,
-      }));
-
-      this.logger.log(products);
-      await this.redis.set(cacheKey, JSON.stringify(result), 60 * 5);
-      this.logger.log('Product from DB');
-      return result;
-    } catch (error) {
-      this.logger.error(error);
-      throw error;
-    }
-  }
+}
 
   async getByCategory(categoryId: number, page: number, limit: number) {
-    try {
-      const cacheKey = `product:category:${categoryId}:${page}:${limit}`;
-      const cached = await this.redis.get(cacheKey);
-      if (cached) {
-        this.logger.log('Product from cache');
-        return JSON.parse(cached);
-      }
+  try {
+    const cacheKey = `product:category:${categoryId}:${page}:${limit}`;
+    const cached = await this.redis.get(cacheKey);
 
-      const skip = (page - 1) * limit;
+    if (cached) {
+      this.logger.log('Category product from cache');
+      return JSON.parse(cached);
+    }
 
-      const products = await this.prisma.products.findMany({
+    const skip = (page - 1) * limit;
+
+    const [products, total] = await Promise.all([
+      this.prisma.products.findMany({
         where: {
           CategoryId: categoryId,
+          // Chỉ cho public thấy sản phẩm đã được admin duyệt
+          ApprovalStatus: 'APPROVED',
+          // Sản phẩm phải đang active
           IsActive: true,
+          // Và chưa bị xóa mềm
           IsDeleted: false,
         },
         skip,
@@ -685,29 +711,52 @@ export class ProductService {
           Price: true,
           ThumbnailUrl: true,
           Categories: {
-            select: { CategoryName: true },
+            select: {
+              CategoryName: true,
+            },
           },
         },
-      });
+      }),
+      this.prisma.products.count({
+        where: {
+          CategoryId: categoryId,
+          // Count cũng phải cùng điều kiện public như danh sách
+          ApprovalStatus: 'APPROVED',
+          IsActive: true,
+          IsDeleted: false,
+        },
+      }),
+    ]);
 
-      const result = products.map((p) => ({
-        id: p.ProductId,
-        name: p.ProductName,
-        price: p.Price,
-        thumbnail: p.ThumbnailUrl,
-        categoryName: p.Categories?.CategoryName ?? null,
-      }));
+    const result = {
+      data: products.map((p) => ({
+        ProductId: p.ProductId,
+        ProductName: p.ProductName,
+        Price: p.Price,
+        ThumbnailUrl: p.ThumbnailUrl,
+        CategoryName: p.Categories?.CategoryName ?? null,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
 
-      await this.redis.set(cacheKey, JSON.stringify(result), 60 * 5);
-      this.logger.log('Product from DB');
-      return result;
-    } catch (error) {
-      this.logger.error(error);
-      throw error;
-    }
+    await this.redis.set(cacheKey, JSON.stringify(result), 60 * 1);
+    this.logger.log('Category product from DB');
+
+    return result;
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
   }
-
-  async getMyProducts(ownerUserId: number, page : number , limit :number) {
+}
+// API GET /product/my-products
+// Dùng để shopowner xem danh sách sản phẩm của shop mình trong trang quản lý nội bộ.
+// API này trả cả sản phẩm đang chờ duyệt, đã duyệt và bị từ chối.
+  async getMyProducts(ownerUserId: number, page : number , limit :number, status?: 'PENDING' | 'APPROVED' | 'REJECTED',) {
     try {
       const skip = (page - 1) * limit;
       const store = await this.prisma.stores.findFirst({
@@ -723,12 +772,16 @@ export class ProductService {
       if (!store) {
         throw new NotFoundException('Store not found');
       }
+      const whereCondition: any = {
+        StoreId: store.StoreId,
+        IsDeleted: false,
+      };
 
+      if (status) {
+        whereCondition.ApprovalStatus = status;
+      }
       const products = await this.prisma.products.findMany({
-        where: {
-          StoreId: store.StoreId,
-          IsDeleted: false,
-        },
+        where: whereCondition,
         skip,
         take: limit,
         orderBy: {
@@ -740,6 +793,9 @@ export class ProductService {
           Price: true,
           ThumbnailUrl: true,
           IsActive: true,
+          ApprovalStatus: true,
+          RejectReason: true,
+          ReviewedAt: true,
           UpdatedAt: true,
           CreatedAt: true,
           Categories: {
@@ -769,6 +825,10 @@ export class ProductService {
           thumbnailUrl: product.ThumbnailUrl,
           stock: totalStock,
           isActive: product.IsActive ?? false,
+          // Approval flow: trả trạng thái duyệt để FE hiển thị tab và badge trạng thái
+          approvalStatus: product.ApprovalStatus,
+          rejectReason: product.RejectReason,
+          reviewedAt: product.ReviewedAt,
           updatedAt: product.UpdatedAt,
           createdAt: product.CreatedAt,
           category: product.Categories
@@ -797,7 +857,10 @@ export class ProductService {
   findOne(id: number) {
     return `This action returns a #${id} product`;
   }
-
+// API PATCH /product/:id
+// Dùng để shopowner chỉnh sửa sản phẩm của chính shop mình.
+// Nếu sản phẩm đang APPROVED mà bị chỉnh sửa, sản phẩm sẽ quay lại PENDING
+// để chờ admin duyệt lại và tạm thời không còn xuất hiện ở public.
   async update(
     ownerUserId: number,
     id: number,
@@ -844,6 +907,7 @@ export class ProductService {
           Price: true,
           ThumbnailUrl: true,
           IsActive: true,
+          ApprovalStatus: true,
           UpdatedAt: true,
           ProductImages: {
             select: {
@@ -871,6 +935,13 @@ export class ProductService {
 
       if (!existingProduct) {
         throw new NotFoundException('Product not found');
+      }
+      // Theo rule hiện tại: sản phẩm đã REJECTED không được sửa để gửi duyệt lại.
+// Shopowner phải tạo sản phẩm mới.
+      if (existingProduct.ApprovalStatus === 'REJECTED') {
+        throw new BadRequestException(
+          'Rejected product cannot be updated. Please create a new product.',
+        );
       }
 
       if (updateProductDto.categoryId !== undefined) {
@@ -941,6 +1012,10 @@ export class ProductService {
         IsActive?: boolean;
         ThumbnailUrl?: string;
         Price?: number;
+        ApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+        RejectReason?: string | null;
+        ReviewedBy?: number | null;
+        ReviewedAt?: Date | null;
       } = {};
 
       if (updateProductDto.categoryId !== undefined) {
@@ -966,7 +1041,14 @@ export class ProductService {
       if (parsedVariants) {
         productData.Price = Math.min(...parsedVariants.map((item) => item.price));
       }
-
+      // Nếu sản phẩm đang APPROVED mà bị chỉnh sửa,
+      // thì phải quay lại PENDING để admin duyệt lại.
+      if (existingProduct.ApprovalStatus === 'APPROVED') {
+        productData.ApprovalStatus = 'PENDING';
+        productData.RejectReason = null;
+        productData.ReviewedBy = null;
+        productData.ReviewedAt = null;
+      }
       const updatedProduct = await this.prisma.$transaction(async (tx) => {
         const product = await tx.products.update({
           where: {
@@ -1128,78 +1210,80 @@ export class ProductService {
   }
 
   async getDetailProduct(id: number) {
-    try {
-      const product = await this.prisma.products.findFirst({
-        where: {
-          ProductId: id,
-          IsActive: true,
-          IsDeleted: false,
+  try {
+    const product = await this.prisma.products.findFirst({
+      where: {
+        ProductId: id,
+        ApprovalStatus: 'APPROVED',
+        IsActive: true,
+        IsDeleted: false,
+      },
+      select: {
+        ProductId: true,
+        ProductName: true,
+        Price: true,
+        ThumbnailUrl: true,
+        Description: true,
+        Categories: {
+          select: { CategoryName: true },
         },
-        select: {
-          ProductId: true,
-          ProductName: true,
-          Price: true,
-          ThumbnailUrl: true,
-          Description: true,
-          Categories: {
-            select: { CategoryName: true },
-          },
-          ProductImages: {
-            select: {
-              ImageUrl: true,
-            },
-          },
-          ProductVariants: {
-            select: {
-              VariantId: true,
-              Size: true,
-              Color: true,
-              Stock: true,
-              Price: true,
-            },
+        ProductImages: {
+          select: {
+            ImageUrl: true,
           },
         },
-      });
+        ProductVariants: {
+          select: {
+            VariantId: true,
+            Size: true,
+            Color: true,
+            Stock: true,
+            Price: true,
+          },
+        },
+      },
+    });
 
-      if (!product) {
-        this.logger.error('Product not found');
-        return null;
-      }
-
-      const sold = await this.prisma.orderItems.aggregate({
-        _sum: {
-          Quantity: true,
-        },
-        where: {
-          ProductVariants: {
-            ProductId: id,
-          },
-        },
-      });
-
-      this.logger.log(product);
-      return {
-        id: product.ProductId,
-        name: product.ProductName,
-        price: product.Price,
-        description: product.Description,
-        thumbnail: product.ThumbnailUrl,
-        categoryName: product.Categories?.CategoryName ?? null,
-        images: product.ProductImages.map((img) => img.ImageUrl),
-        variants: product.ProductVariants.map((variant) => ({
-          variantId: variant.VariantId,
-          size: variant.Size,
-          color: variant.Color,
-          stock: variant.Stock,
-          price: variant.Price,
-        })),
-        sold: sold._sum.Quantity || 0,
-      };
-    } catch (error) {
-      this.logger.error(error);
-      throw error;
+    if (!product) {
+      this.logger.error(`Approved product not found: productId=${id}`);
+      return null;
     }
+
+    const sold = await this.prisma.orderItems.aggregate({
+      _sum: {
+        Quantity: true,
+      },
+      where: {
+        ProductVariants: {
+          ProductId: id,
+        },
+      },
+    });
+
+    this.logger.log(product);
+
+    return {
+      id: product.ProductId,
+      name: product.ProductName,
+      price: product.Price,
+      description: product.Description,
+      thumbnail: product.ThumbnailUrl,
+      categoryName: product.Categories?.CategoryName ?? null,
+      images: product.ProductImages.map((img) => img.ImageUrl),
+      variants: product.ProductVariants.map((variant) => ({
+        variantId: variant.VariantId,
+        size: variant.Size,
+        color: variant.Color,
+        stock: variant.Stock,
+        price: variant.Price,
+      })),
+      sold: sold._sum.Quantity || 0,
+    };
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
   }
+}
 
   async remove(ownerUserId: number, productId: number) {
     try {
@@ -1292,62 +1376,426 @@ export class ProductService {
     }
   }
   
-  async getProductShop(idShop : number,limit :number){
-    try {
-      const products = await this.prisma.products.findMany({
-        where: {
-          StoreId: idShop,
-          IsActive :true,
-          IsDeleted :false,
+  async getProductShop(idShop: number, limit: number) {
+  try {
+    const cacheKey = `product:shop:${idShop}:${limit}`;
+    const cached = await this.redis.get(cacheKey);
+
+    if (cached) {
+      this.logger.log('Shop product from cache');
+      return JSON.parse(cached);
+    }
+
+    const product = await this.prisma.products.findMany({
+      take: limit,
+      where: {
+        StoreId: idShop,
+        // Chỉ cho public thấy sản phẩm đã được admin duyệt
+        ApprovalStatus: 'APPROVED',
+        // Sản phẩm phải đang active
+        IsActive: true,
+        // Và chưa bị xóa mềm
+        IsDeleted: false,
+      },
+      select: {
+        ProductId: true,
+        ProductName: true,
+        Price: true,
+        ThumbnailUrl: true,
+        CreatedAt: true,
+        Categories: {
+          select: {
+            CategoryName: true,
+          },
         },
-        take:limit,
+      },
+      orderBy: {
+        CreatedAt: 'desc',
+      },
+    });
+
+    if (product.length === 0) {
+      this.logger.error('Product not found');
+      return [];
+    }
+
+    this.logger.log(product);
+
+    const result = product.map((p) => ({
+      ProductId: p.ProductId,
+      ProductName: p.ProductName,
+      Price: p.Price,
+      ThumbnailUrl: p.ThumbnailUrl,
+      CreatedAt: p.CreatedAt,
+      CategoryName: p.Categories?.CategoryName ?? null,
+    }));
+
+    await this.redis.set(cacheKey, JSON.stringify(result), 60 * 1);
+    this.logger.log('Shop product from DB');
+
+    return result;
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
+  }
+}
+//FC.32
+// API GET /admin/products/pending
+// Dùng để admin xem danh sách các sản phẩm đang chờ duyệt.
+// Chỉ lấy các sản phẩm có ApprovalStatus = PENDING.
+async getPendingProducts(page: number, limit: number) {
+  try {
+    const skip = (page - 1) * limit;
+
+    const [products, total] = await Promise.all([
+      this.prisma.products.findMany({
+        where: {
+          ApprovalStatus: 'PENDING',
+          IsDeleted: false,
+        },
+        skip,
+        take: limit,
+        orderBy: {
+          CreatedAt: 'desc',
+        },
         select: {
           ProductId: true,
           ProductName: true,
           Price: true,
           ThumbnailUrl: true,
-          Description: true,
-          Categories: {
-            select: { CategoryName: true },
-          },
-          ProductImages: {
+          ApprovalStatus: true,
+          CreatedAt: true,
+          Stores: {
             select: {
-              ImageUrl: true,
+              StoreId: true,
+              StoreName: true,
             },
           },
-          ProductVariants: {
+          Categories: {
             select: {
-              VariantId: true,
-              Size: true,
-              Color: true,
-              Stock: true,
-              Price: true,
+              CategoryId: true,
+              CategoryName: true,
             },
           },
         },
-      });
+      }),
+      this.prisma.products.count({
+        where: {
+          ApprovalStatus: 'PENDING',
+          IsDeleted: false,
+        },
+      }),
+    ]);
 
-      this.logger.log(`idShop : ${idShop}`);
-      this.logger.log(products);
-      return products.map((product) => ({
-        id: product.ProductId,
-        name: product.ProductName,
-        price: product.Price,
+    return {
+      message: 'Get pending products successfully',
+      data: products.map((product) => ({
+        productId: product.ProductId,
+        productName: product.ProductName,
+        price: Number(product.Price),
+        thumbnailUrl: product.ThumbnailUrl,
+        approvalStatus: product.ApprovalStatus,
+        createdAt: product.CreatedAt,
+        store: product.Stores
+          ? {
+              storeId: product.Stores.StoreId,
+              storeName: product.Stores.StoreName,
+            }
+          : null,
+        category: product.Categories
+          ? {
+              categoryId: product.Categories.CategoryId,
+              categoryName: product.Categories.CategoryName,
+            }
+          : null,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
+  }
+}
+
+// API GET /product/admin/:id
+// Dùng để admin xem chi tiết 1 sản phẩm trước khi duyệt hoặc từ chối.
+// API này xem được cả sản phẩm đang PENDING, APPROVED hoặc REJECTED.
+async getAdminProductDetail(productId: number) {
+  try {
+    const product = await this.prisma.products.findFirst({
+      where: {
+        ProductId: productId,
+        IsDeleted: false,
+      },
+      select: {
+        ProductId: true,
+        StoreId: true,
+        CategoryId: true,
+        ProductName: true,
+        Description: true,
+        Price: true,
+        ThumbnailUrl: true,
+        IsActive: true,
+        ApprovalStatus: true,
+        RejectReason: true,
+        ReviewedBy: true,
+        ReviewedAt: true,
+        CreatedAt: true,
+        UpdatedAt: true,
+        Stores: {
+          select: {
+            StoreId: true,
+            StoreName: true,
+            OwnerId: true,
+          },
+        },
+        Categories: {
+          select: {
+            CategoryId: true,
+            CategoryName: true,
+          },
+        },
+        ProductImages: {
+          select: {
+            ImageId: true,
+            ImageUrl: true,
+          },
+          orderBy: {
+            ImageId: 'asc',
+          },
+        },
+        ProductVariants: {
+          select: {
+            VariantId: true,
+            Size: true,
+            Color: true,
+            Stock: true,
+            Price: true,
+          },
+          orderBy: {
+            VariantId: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    return {
+      message: 'Get admin product detail successfully',
+      data: {
+        productId: product.ProductId,
+        storeId: product.StoreId,
+        categoryId: product.CategoryId,
+        productName: product.ProductName,
         description: product.Description,
-        thumbnail: product.ThumbnailUrl,
-        categoryName: product.Categories?.CategoryName ?? null,
-        images: product.ProductImages.map((img) => img.ImageUrl),
+        price: Number(product.Price),
+        thumbnailUrl: product.ThumbnailUrl,
+        isActive: product.IsActive ?? false,
+        approvalStatus: product.ApprovalStatus,
+        rejectReason: product.RejectReason,
+        reviewedBy: product.ReviewedBy,
+        reviewedAt: product.ReviewedAt,
+        createdAt: product.CreatedAt,
+        updatedAt: product.UpdatedAt,
+        store: product.Stores
+          ? {
+              storeId: product.Stores.StoreId,
+              storeName: product.Stores.StoreName,
+              ownerId: product.Stores.OwnerId,
+            }
+          : null,
+        category: product.Categories
+          ? {
+              categoryId: product.Categories.CategoryId,
+              categoryName: product.Categories.CategoryName,
+            }
+          : null,
+        images: product.ProductImages.map((image) => ({
+          imageId: image.ImageId,
+          imageUrl: image.ImageUrl,
+        })),
         variants: product.ProductVariants.map((variant) => ({
           variantId: variant.VariantId,
           size: variant.Size,
           color: variant.Color,
           stock: variant.Stock,
-          price: variant.Price,
+          price: Number(variant.Price),
         })),
-      }));
-    } catch (error) {
-      this.logger.error(error);
-      throw error;
-    }
+      },
+    };
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
   }
+}
+
+// API PATCH /product/admin/:id/approve
+// Dùng để admin duyệt sản phẩm đang chờ duyệt.
+// Chỉ cho phép approve khi sản phẩm đang ở trạng thái PENDING.
+async approveProduct(adminUserId: number, productId: number) {
+  try {
+    const existingProduct = await this.prisma.products.findFirst({
+      where: {
+        ProductId: productId,
+        IsDeleted: false,
+      },
+      select: {
+        ProductId: true,
+        StoreId: true,
+        ProductName: true,
+        ApprovalStatus: true,
+      },
+    });
+
+    if (!existingProduct) {
+      throw new NotFoundException('Product not found');
+    }
+
+    if (existingProduct.ApprovalStatus !== 'PENDING') {
+      throw new BadRequestException(
+        'Only pending products can be approved',
+      );
+    }
+
+    const approvedProduct = await this.prisma.products.update({
+      where: {
+        ProductId: existingProduct.ProductId,
+      },
+      data: {
+        ApprovalStatus: 'APPROVED',
+        RejectReason: null,
+        ReviewedBy: adminUserId,
+        ReviewedAt: new Date(),
+      },
+      select: {
+        ProductId: true,
+        StoreId: true,
+        ProductName: true,
+        ApprovalStatus: true,
+        RejectReason: true,
+        ReviewedBy: true,
+        ReviewedAt: true,
+        UpdatedAt: true,
+      },
+    });
+
+    this.logger.log(
+      `Approve product successfully: productId=${approvedProduct.ProductId}, adminUserId=${adminUserId}`,
+    );
+
+    await this.redis.deleteByPattern(`product:category:*`);
+    await this.redis.deleteByPattern(`product:new:*`);
+    await this.redis.deleteByPattern(`product:best-seller:*`);
+    await this.redis.deleteByPattern(`product:shop:${approvedProduct.StoreId}:*`);
+
+    return {
+      message: 'Approve product successfully',
+      data: {
+        productId: approvedProduct.ProductId,
+        storeId: approvedProduct.StoreId,
+        productName: approvedProduct.ProductName,
+        approvalStatus: approvedProduct.ApprovalStatus,
+        rejectReason: approvedProduct.RejectReason,
+        reviewedBy: approvedProduct.ReviewedBy,
+        reviewedAt: approvedProduct.ReviewedAt,
+        updatedAt: approvedProduct.UpdatedAt,
+      },
+    };
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
+  }
+}
+
+
+// API PATCH /product/admin/:id/reject
+// Dùng để admin từ chối sản phẩm đang chờ duyệt và lưu lý do từ chối.
+// Chỉ cho phép reject khi sản phẩm đang ở trạng thái PENDING.
+async rejectProduct(
+  adminUserId: number,
+  productId: number,
+  reason: string,
+) {
+  try {
+    const existingProduct = await this.prisma.products.findFirst({
+      where: {
+        ProductId: productId,
+        IsDeleted: false,
+      },
+      select: {
+        ProductId: true,
+        StoreId: true,
+        ProductName: true,
+        ApprovalStatus: true,
+      },
+    });
+
+    if (!existingProduct) {
+      throw new NotFoundException('Product not found');
+    }
+
+    if (existingProduct.ApprovalStatus !== 'PENDING') {
+      throw new BadRequestException(
+        'Only pending products can be rejected',
+      );
+    }
+
+    const rejectedProduct = await this.prisma.products.update({
+      where: {
+        ProductId: existingProduct.ProductId,
+      },
+      data: {
+        ApprovalStatus: 'REJECTED',
+        RejectReason: reason.trim(),
+        ReviewedBy: adminUserId,
+        ReviewedAt: new Date(),
+      },
+      select: {
+        ProductId: true,
+        StoreId: true,
+        ProductName: true,
+        ApprovalStatus: true,
+        RejectReason: true,
+        ReviewedBy: true,
+        ReviewedAt: true,
+        UpdatedAt: true,
+      },
+    });
+
+    this.logger.log(
+      `Reject product successfully: productId=${rejectedProduct.ProductId}, adminUserId=${adminUserId}`,
+    );
+
+    await this.redis.deleteByPattern(`product:category:*`);
+    await this.redis.deleteByPattern(`product:new:*`);
+    await this.redis.deleteByPattern(`product:best-seller:*`);
+    await this.redis.deleteByPattern(`product:shop:${rejectedProduct.StoreId}:*`);
+
+    return {
+      message: 'Reject product successfully',
+      data: {
+        productId: rejectedProduct.ProductId,
+        storeId: rejectedProduct.StoreId,
+        productName: rejectedProduct.ProductName,
+        approvalStatus: rejectedProduct.ApprovalStatus,
+        rejectReason: rejectedProduct.RejectReason,
+        reviewedBy: rejectedProduct.ReviewedBy,
+        reviewedAt: rejectedProduct.ReviewedAt,
+        updatedAt: rejectedProduct.UpdatedAt,
+      },
+    };
+  } catch (error) {
+    this.logger.error(error);
+    throw error;
+  }
+}
+
 }
