@@ -44,4 +44,28 @@ export class MailService {
     return { message: `Verification code sent to ${email}` };
   }
 
+  // Gửi email thông báo tài khoản được Admin tạo kèm mật khẩu
+  async sendAdminCreatedAccount(email: string, name: string, password: string) {
+    await this.mailerService.sendMail({
+      to: email,
+      subject: 'Tài khoản của bạn đã được tạo',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #1a56db;">Chào ${name},</h2>
+          <p>Tài khoản của bạn đã được tạo bởi quản trị viên hệ thống.</p>
+          <div style="background: #f0f5ff; border-radius: 8px; padding: 20px; margin: 20px 0;">
+            <p style="margin: 0 0 8px 0;"><strong>Email:</strong> ${email}</p>
+            <p style="margin: 0;"><strong>Mật khẩu tạm thời:</strong></p>
+            <h2 style="color: #dc2626; letter-spacing: 2px; text-align: center; background: #fff; padding: 12px; border-radius: 6px; margin: 8px 0;">${password}</h2>
+          </div>
+          <p style="color: #dc2626;"><strong>⚠️ Vui lòng đổi mật khẩu ngay sau khi đăng nhập lần đầu.</strong></p>
+          <p>Bạn cũng cần xác nhận email bằng mã xác minh đã được gửi riêng.</p>
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="color: #9ca3af; font-size: 12px;">Email này được gửi tự động, vui lòng không trả lời.</p>
+        </div>
+      `,
+    });
+    this.logger.log(`Admin-created account email sent to ${email}`);
+  }
+
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Req, Request, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -99,6 +99,48 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   changePassword(@Request() req, @Body() body: ChangePasswordDto) {
     return this.usersService.changePassword(req.user.userId, body);
+  }
+
+  // =============================================
+  // ADMIN — Quản lý tài khoản người dùng
+  // =============================================
+
+  // Toggle Active/Blocked cho user bất kỳ
+  @Patch('admin/:id/toggle-status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  toggleUserStatus(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.toggleUserStatus(id);
+  }
+
+  // Cập nhật Role cho user bất kỳ
+  @Patch('admin/:id/update-role')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  updateUserRole(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { role: string },
+  ) {
+    return this.usersService.updateUserRole(id, body.role);
+  }
+
+  // Admin tạo tài khoản mới
+  @Post('admin/create')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  adminCreateUser(@Body() body: { name: string; email: string; role: string; phone?: string }) {
+    return this.usersService.adminCreateUser(body);
+  }
+
+  // Admin cập nhật thông tin user
+  @Patch('admin/:id/update-info')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  adminUpdateUser(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { fullName?: string; phone?: string; role?: string },
+  ) {
+    return this.usersService.adminUpdateUser(id, body);
   }
 
   @Get(':id')

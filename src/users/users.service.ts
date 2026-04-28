@@ -133,6 +133,8 @@ export class UsersService {
             Phone: true,
             Role: true,
             IsActive: true,
+            CreatedAt: true,
+            AvatarUrl: true,
           },
         }),
       ]);
@@ -197,6 +199,12 @@ export class UsersService {
           Role: true,
           Phone: true,
           IsActive: true,
+          AvatarUrl: true,
+          CreatedAt: true,
+          DateOfBirth: true,
+          Gender: true,
+          AuthProvider: true,
+          IsDeleted: true,
         },
       });
 
@@ -552,4 +560,158 @@ export class UsersService {
     );
   }
 }
+
+  // =============================================
+  // ADMIN — Toggle trạng thái Active/Blocked cho user
+  // =============================================
+  async toggleUserStatus(userId: number) {
+    try {
+      const user = await this.prisma.users.findUnique({
+        where: { UserId: userId },
+        select: { UserId: true, IsActive: true, Role: true },
+      });
+
+      if (!user) {
+        throw new NotFoundException(`User not found: ${userId}`);
+      }
+
+      if (user.Role === 'Admin') {
+        throw new BadRequestException('Cannot toggle status of Admin account');
+      }
+
+      const updated = await this.prisma.users.update({
+        where: { UserId: userId },
+        data: {
+          IsActive: !user.IsActive,
+          UpdatedAt: new Date(),
+        },
+        select: {
+          UserId: true,
+          IsActive: true,
+        },
+      });
+
+      this.logger.log(`Admin toggled user status: userId=${userId}, isActive=${updated.IsActive}`);
+
+      return {
+        message: `User ${updated.IsActive ? 'activated' : 'blocked'} successfully`,
+        data: {
+          userId: updated.UserId,
+          isActive: updated.IsActive,
+        },
+      };
+    } catch (error) {
+      this.logger.error('Failed to toggle user status', { error });
+      throw error;
+    }
+  }
+
+  // =============================================
+  // ADMIN — Cập nhật Role cho user
+  // =============================================
+  async updateUserRole(userId: number, role: string) {
+    try {
+      const validRoles = ['Client', 'ShopOwner'];
+      const normalizedRole = role === 'CLIENT' ? 'Client' : role === 'SHOPOWNER' ? 'ShopOwner' : role;
+
+      if (!validRoles.includes(normalizedRole)) {
+        throw new BadRequestException(`Invalid role: ${role}. Must be Client or ShopOwner`);
+      }
+
+      const user = await this.prisma.users.findUnique({
+        where: { UserId: userId },
+        select: { UserId: true, Role: true },
+      });
+
+      if (!user) {
+        throw new NotFoundException(`User not found: ${userId}`);
+      }
+
+      if (user.Role === 'Admin') {
+        throw new BadRequestException('Cannot change role of Admin account');
+      }
+
+      const updated = await this.prisma.users.update({
+        where: { UserId: userId },
+        data: {
+          Role: normalizedRole,
+          UpdatedAt: new Date(),
+        },
+        select: {
+          UserId: true,
+          Role: true,
+        },
+      });
+
+      this.logger.log(`Admin updated user role: userId=${userId}, role=${updated.Role}`);
+
+      return {
+        message: 'User role updated successfully',
+        data: {
+          userId: updated.UserId,
+          role: updated.Role,
+        },
+      };
+    } catch (error) {
+      this.logger.error('Failed to update user role', { error });
+      throw error;
+    }
+  }
+
+  // Admin tạo tài khoản mới (đã verify sẵn)
+  async adminCreateUser(data: { name: string; email: string; role: string; phone?: string }) {
+    try {
+      const existing = await this.prisma.users.findUnique({ where: { Email: data.email } });
+      if (existing) throw new BadRequestException('Email đã tồn tại');
+
+      const validRoles = ['Client', 'ShopOwner'];
+      if (!validRoles.includes(data.role)) throw new BadRequestException('Vai trò không hợp lệ');
+
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+      let randomPassword = '';
+      for (let i = 0; i < 10; i++) randomPassword += chars[Math.floor(Math.random() * chars.length)];
+      const hash = await hashPasswordHelpers(randomPassword);
+      const user = await this.prisma.users.create({
+        data: {
+          FullName: data.name,
+          Email: data.email,
+          PasswordHash: String(hash),
+          Role: data.role,
+          Phone: data.phone || null,
+          IsActive: false,
+        },
+      });
+      await this.mailService.sendVerificationCode(data.email, 'verify-email');
+      await this.mailService.sendAdminCreatedAccount(data.email, data.name, randomPassword);
+
+      return { message: 'Tạo tài khoản thành công', data: { userId: user.UserId, email: user.Email } };
+    } catch (error) {
+      this.logger.error('Admin create user failed', { error });
+      throw error;
+    }
+  }
+
+  // Admin cập nhật thông tin user (tên, SĐT, role)
+  async adminUpdateUser(userId: number, data: { fullName?: string; phone?: string; role?: string }) {
+    try {
+      const user = await this.prisma.users.findUnique({ where: { UserId: userId } });
+      if (!user) throw new NotFoundException('Không tìm thấy tài khoản');
+      if (user.Role?.toLowerCase() === 'admin') throw new BadRequestException('Không thể sửa tài khoản Admin');
+
+      const updateData: any = { UpdatedAt: new Date() };
+      if (data.fullName) updateData.FullName = data.fullName;
+      if (data.phone !== undefined) updateData.Phone = data.phone || null;
+      if (data.role && ['Client', 'ShopOwner'].includes(data.role)) updateData.Role = data.role;
+
+      const updated = await this.prisma.users.update({ where: { UserId: userId }, data: updateData });
+
+      return {
+        message: 'Cập nhật thành công',
+        data: { userId: updated.UserId, fullName: updated.FullName, role: updated.Role },
+      };
+    } catch (error) {
+      this.logger.error('Admin update user failed', { error });
+      throw error;
+    }
+  }
 }

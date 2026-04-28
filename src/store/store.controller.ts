@@ -11,6 +11,7 @@ import {
   Query,
   UseInterceptors,
   UploadedFile,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { StoreService } from './store.service';
 import { CreateStoreDto } from './dto/create-store.dto';
@@ -48,13 +49,39 @@ export class StoreController {
     );
   }
   @Post()
-  create(@Body() createStoreDto: CreateStoreDto) {
-    return this.storeService.create(createStoreDto);
+  @UseGuards(JwtAuthGuard)
+  create(@Request() req, @Body() createStoreDto: CreateStoreDto) {
+    return this.storeService.create(req.user.userId, createStoreDto);
   }
   
   @Get('getshopbyproduct/:productId')
   getStoreByProduct(@Param('productId') productId: number) {
     return this.storeService.getStoreByProduct(productId);
+  }
+
+  // =============================================
+  // ADMIN — Duyệt đơn đăng ký cửa hàng
+  // =============================================
+
+  @Get('admin/pending')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  getPendingStores() {
+    return this.storeService.getPendingStores();
+  }
+
+  @Patch('admin/:id/approve')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  approveStore(@Param('id', ParseIntPipe) id: number) {
+    return this.storeService.approveStore(id);
+  }
+
+  @Patch('admin/:id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  rejectStore(@Param('id', ParseIntPipe) id: number) {
+    return this.storeService.rejectStore(id);
   }
 
   @Get()
