@@ -684,7 +684,93 @@ export class OrderService {
   } catch (error) {
     throw new Error(error.message || 'Preview failed');
   }
-}
+  }
+
+  async getAllOrder(userId: number) {
+    try {
+      const orders = await this.prisma.orders.findMany({
+        where: { UserId: userId },
+        orderBy: { CreatedAt: 'desc' },
+        include: {
+          OrderItems: {
+            include: {
+              ProductVariants: {
+                include: {
+                  Products: true,
+                },
+              },
+            },
+          },
+          Payments: true,
+          OrderVouchers: {
+            include: {
+              Vouchers: true,
+            },
+          },
+          Stores: {
+            select: {
+              StoreName: true,
+              LogoUrl: true,
+            },
+          },
+        },
+      });
+
+      const result = orders.map(order => {
+        const voucher = order.OrderVouchers[0]?.Vouchers;
+        const payment = order.Payments[0];
+
+        const items = order.OrderItems.map(i => ({
+          variantId: i.ProductVariants.VariantId,
+          productName: i.ProductVariants.Products.ProductName,
+          productImage: i.ProductVariants.Products.ThumbnailUrl,
+          variant: `${i.ProductVariants.Size} - ${i.ProductVariants.Color}`,
+          quantity: i.Quantity,
+          unitPrice: i.UnitPrice,
+          total: Number(i.UnitPrice) * i.Quantity,
+        }));
+
+        return {
+          orderId: order.OrderId,
+          orderStatus: order.OrderStatus,
+          paymentStatus: order.PaymentStatus,
+          totalAmount: order.TotalAmount,
+          shippingAddress: order.ShippingAddress,
+          createdAt: order.CreatedAt,
+          store: order.Stores
+            ? {
+                storeName: order.Stores.StoreName,
+                logo: order.Stores.LogoUrl,
+              }
+            : null,
+          items,
+          voucher: voucher
+            ? {
+                code: voucher.Code,
+                discountPercent: voucher.DiscountPercent,
+              }
+            : null,
+          payment: payment
+            ? {
+                method: payment.PaymentMethod,
+                status: payment.Status,
+              }
+            : null,
+        };
+      });
+
+      return {
+        message: 'Get all orders successfully',
+        data: {
+          total: result.length,
+          orders: result,
+        },
+      };
+    } catch (error) {
+      this.logger.error(`[GetAllOrder Error] ${error.message}`);
+      throw new NotFoundException(error.message || 'Get all orders failed');
+    }
+  }
 
   findAll() {
     return `This action returns all order`;
