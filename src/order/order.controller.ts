@@ -64,6 +64,13 @@ export class OrderController {
     return this.orderService.getAllOrder(req.user.userId);
   }
 
+  @Post('verify-momo-payment')
+  @Roles(Role.CLIENT)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  verifyMomoPayment(@Body() body: { orderId: string; resultCode: string }) {
+    return this.orderService.verifyMomoPayment(body.orderId, body.resultCode);
+  }
+
   @Get()
   findAll() {
     return this.orderService.findAll();

@@ -6,14 +6,19 @@ import { ConfigService } from '@nestjs/config';
 export class MomoStrategy implements PaymentStrategy {
     constructor(private config: ConfigService){}
 
-  async createPayment({ orderId, amount }) {
+  async createPayment({ orderId, amount, orderIds }: { orderId: number; amount: number; orderIds?: number[] }) {
 
     const uniqueOrderId = `CPS_${orderId}_${Date.now()}`;
     const requestId = `REQ_${uniqueOrderId}`;
 
+    // Encode tất cả orderIds vào extraData để IPN handler biết cần cập nhật những order nào
+    const extraData = orderIds && orderIds.length > 1
+      ? Buffer.from(JSON.stringify({ orderIds })).toString('base64')
+      : '';
+
     const raw = `accessKey=${this.config.get('MOMO_ACCESS_KEY')}` +
                 `&amount=${amount}` +
-                `&extraData=` +
+                `&extraData=${extraData}` +
                 `&ipnUrl=${this.config.get('MOMO_IPN_URL')}` +
                 `&orderId=${uniqueOrderId}` +
                 `&orderInfo=Thanh toán đơn hàng` +
@@ -40,7 +45,7 @@ export class MomoStrategy implements PaymentStrategy {
         lang: 'vi',
         requestType: 'captureWallet',
         autoCapture: true,
-        extraData: '',
+        extraData,
         signature,
     });
 

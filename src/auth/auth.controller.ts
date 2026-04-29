@@ -64,7 +64,7 @@ export class AuthController {
   
   @Get("google/callback")
   @UseGuards(GoogleAuthGuard)
-  async googleCallback(@Request() req, @Res({ passthrough: true }) res: Response) {
+  async googleCallback(@Request() req, @Res() res: Response) {
     const tokens = await this.authService.login(req.user);
 
     res.cookie('refreshToken', tokens.refreshToken, {
@@ -74,8 +74,6 @@ export class AuthController {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    return {
-    accessToken: tokens.accessToken,
-  };
+    return res.redirect(`http://localhost:5173/auth/google/callback?token=${tokens.accessToken}`);
   }
 }

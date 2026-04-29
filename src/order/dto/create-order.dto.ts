@@ -1,5 +1,6 @@
-import { IsEnum, IsArray, IsOptional, IsNumber, Min, IsString } from 'class-validator';
-import { PreviewType } from './preview.dto';
+import { IsEnum, IsArray, IsOptional, IsNumber, Min, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { PreviewType, StoreVoucherDto } from './preview.dto';
 
 export class CreateOrderDto {
   @IsEnum(PreviewType)
@@ -18,6 +19,14 @@ export class CreateOrderDto {
   @Min(1)
   quantity?: number;
 
+  // Voucher cho từng shop (Shopee-style)
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => StoreVoucherDto)
+  storeVouchers?: StoreVoucherDto[];
+
+  // Backward compat: 1 voucher cho BUY_NOW hoặc 1 shop
   @IsOptional()
   @IsString()
   voucherCode?: string;
@@ -26,5 +35,5 @@ export class CreateOrderDto {
   addressId: number;
 
   @IsString()
-  paymentMethod: string; // VD: 'MOMO' hoặc 'COD'
+  paymentMethod: string; // 'MOMO' hoặc 'COD'
 }
