@@ -14,8 +14,41 @@ export class StoreService {
     private readonly redis : RedisService,
     private readonly uploadService : UploadService
   ){}
-  create(createStoreDto: CreateStoreDto) {
-    return 'This action adds a new store';
+  async create(userId: number, createStoreDto: CreateStoreDto) {
+    try {
+      // Kiểm tra user đã có store chưa
+      const existingStore = await this.prisma.stores.findFirst({
+        where: { OwnerId: userId, IsDeleted: false },
+      });
+
+      if (existingStore) {
+        throw new BadRequestException('Bạn đã có cửa hàng hoặc đơn đang chờ duyệt');
+      }
+
+      // Tạo store mới (IsActive = false → chờ Admin duyệt)
+      const store = await this.prisma.stores.create({
+        data: {
+          OwnerId: userId,
+          StoreName: createStoreDto.storeName,
+          Description: createStoreDto.description || null,
+          IsActive: false,
+          IsDeleted: false,
+        },
+      });
+
+      this.logger.log(`Store created for approval: storeId=${store.StoreId}, userId=${userId}`);
+
+      return {
+        message: 'Đơn đăng ký đã được gửi, vui lòng chờ Admin duyệt',
+        data: {
+          storeId: store.StoreId,
+          storeName: store.StoreName,
+        },
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 
   findAll() {
@@ -237,5 +270,132 @@ async getStoreByBest(limit: number) {
 
   remove(id: number) {
     return `This action removes a #${id} store`;
+  }
+
+  // =============================================
+  // ADMIN — Duyệt đơn đăng ký cửa hàng
+  // =============================================
+
+  // Lấy danh sách cửa hàng chờ duyệt (IsActive = false, IsDeleted = false)
+  async getPendingStores() {
+    try {
+      const stores = await this.prisma.stores.findMany({
+        where: {
+          IsActive: false,
+          IsDeleted: false,
+        },
+        select: {
+          StoreId: true,
+          OwnerId: true,
+          StoreName: true,
+          Description: true,
+          LogoUrl: true,
+          IsActive: true,
+          CreatedAt: true,
+          Users: {
+            select: {
+              UserId: true,
+              FullName: true,
+              Email: true,
+              Phone: true,
+              AvatarUrl: true,
+            },
+          },
+        },
+        orderBy: {
+          CreatedAt: 'desc',
+        },
+      });
+
+      return {
+        message: 'Get pending stores successfully',
+        data: stores.map((store) => ({
+          storeId: store.StoreId,
+          ownerId: store.OwnerId,
+          storeName: store.StoreName,
+          description: store.Description,
+          logoUrl: store.LogoUrl,
+          isActive: store.IsActive,
+          createdAt: store.CreatedAt,
+          owner: {
+            userId: store.Users.UserId,
+            fullName: store.Users.FullName,
+            email: store.Users.Email,
+            phone: store.Users.Phone,
+            avatarUrl: store.Users.AvatarUrl,
+          },
+        })),
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
+  // Admin duyệt cửa hàng → IsActive = true
+  async approveStore(storeId: number) {
+    try {
+      const store = await this.prisma.stores.findFirst({
+        where: { StoreId: storeId, IsDeleted: false },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      await this.prisma.stores.update({
+        where: { StoreId: storeId },
+        data: { IsActive: true },
+      });
+
+      // Đảm bảo user có role ShopOwner
+      await this.prisma.users.update({
+        where: { UserId: store.OwnerId },
+        data: { Role: 'ShopOwner' },
+      });
+
+      this.logger.log(`Admin approved store: storeId=${storeId}`);
+
+      return {
+        message: 'Store approved successfully',
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
+  // Admin từ chối cửa hàng → IsDeleted = true, đổi role về Client
+  async rejectStore(storeId: number) {
+    try {
+      const store = await this.prisma.stores.findFirst({
+        where: { StoreId: storeId, IsDeleted: false },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      // Xóa mềm store
+      await this.prisma.stores.update({
+        where: { StoreId: storeId },
+        data: { IsDeleted: true, IsActive: false },
+      });
+
+      // Đổi role user về Client
+      await this.prisma.users.update({
+        where: { UserId: store.OwnerId },
+        data: { Role: 'Client' },
+      });
+
+      this.logger.log(`Admin rejected store: storeId=${storeId}`);
+
+      return {
+        message: 'Store rejected successfully',
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 }

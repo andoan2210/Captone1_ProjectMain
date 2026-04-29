@@ -1798,4 +1798,29 @@ async rejectProduct(
   }
 }
 
+  // =============================================
+  // COMPARE — Methods dành riêng cho trang So sánh sản phẩm
+  // =============================================
+
+  async compareSearch(keyword: string, page: number, limit: number) {
+    const result = await this.searchProducts({
+      keyword,
+      page,
+      limit,
+    });
+    return result;
+  }
+
+  async compareSuggestions(keyword: string) {
+    return this.getSuggestions(keyword);
+  }
+
+  async comparePopular(limit: number) {
+    return this.getNewProduct(limit);
+  }
+
+  async compareDetail(id: number) {
+    return this.getDetailProduct(id);
+  }
+
 }
