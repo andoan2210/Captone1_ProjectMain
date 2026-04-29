@@ -57,6 +57,13 @@ export class OrderController {
     return this.orderService.preview(req.user.userId, dto);
   }
 
+  @Get('my-orders')
+  @Roles(Role.CLIENT,Role.SHOP_OWNER)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  getAllOrder(@Request() req) {
+    return this.orderService.getAllOrder(req.user.userId);
+  }
+
   @Get()
   findAll() {
     return this.orderService.findAll();

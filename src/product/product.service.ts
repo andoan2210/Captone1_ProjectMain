@@ -63,7 +63,9 @@ export class ProductService {
     try {
       this.logger.log('Building product search cache...');
       const products = await this.prisma.products.findMany({
+
         where: { IsActive: true, IsDeleted: false, ApprovalStatus: 'APPROVED' },
+
         select: {
           ProductId: true,
           ProductName: true,
@@ -141,6 +143,7 @@ export class ProductService {
     return results.map(r => r.item.name);
   }
 
+
   // ========================= TÍNH NĂNG TÌM KIẾM ==============================
   async searchProducts(searchDto: SearchProductDto) {
     const { keyword, categoryId, minPrice, maxPrice, sortBy = 'relevance', page = 1, limit = 20 } = searchDto;
@@ -201,6 +204,7 @@ export class ProductService {
     const paginatedItems = data.slice(skip, skip + limitNum); // Cắt mảng lấy đúng số lượng cần thiết
 
     // Bước 6: FORMAT & TRẢ VỀ KẾT QUẢ
+
     const returnData = paginatedItems.map((p: any) => ({
       id: p.id,
       name: p.name,
@@ -216,8 +220,10 @@ export class ProductService {
       pagination: {
         page: pageNum,
         limit: limitNum,
+
         totalItems: data.length, // Tổng số lượng sản phẩm (để client tính toán trang)
         totalPages: Math.ceil(data.length / limitNum), // Tổng số trang
+
       }
     };
   }
@@ -959,7 +965,9 @@ export class ProductService {
         throw new NotFoundException('Product not found');
       }
       // Theo rule hiện tại: sản phẩm đã REJECTED không được sửa để gửi duyệt lại.
+
       // Shopowner phải tạo sản phẩm mới.
+
       if (existingProduct.ApprovalStatus === 'REJECTED') {
         throw new BadRequestException(
           'Rejected product cannot be updated. Please create a new product.',
@@ -1430,6 +1438,7 @@ export class ProductService {
             CategoryName: true,
           },
         },
+
         ProductVariants: {
           select: {
             VariantId: true,
@@ -1444,6 +1453,7 @@ export class ProductService {
             },
           },
         },
+
       },
       orderBy: {
         CreatedAt: 'desc',
@@ -1451,6 +1461,7 @@ export class ProductService {
     });
 
     if (product.length === 0) {
+
       this.logger.log('No products found for shop');
       return [];
     }
@@ -1481,6 +1492,7 @@ export class ProductService {
         })),
       };
     });
+
 
     await this.redis.set(cacheKey, JSON.stringify(result), 60 * 1);
     this.logger.log('Shop product from DB');

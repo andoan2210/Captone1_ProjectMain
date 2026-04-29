@@ -207,6 +207,8 @@ rejectProduct(
     return this.productService.getSuggestions(suggestDto.keyword || '');
   }
 
+
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.productService.findOne(+id);
