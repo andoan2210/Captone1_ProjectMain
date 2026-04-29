@@ -69,6 +69,7 @@ export class CartService {
                   Products: {
                     include: {
                       ProductImages: { take: 1 },
+                      Stores       : true, // Lấy thông tin shop
                     },
                   },
                 },
@@ -82,22 +83,25 @@ export class CartService {
       if (!cart) {
         return {
           cartId: null,
-          cartItems: [],
+          shops: [],
           totalItems: 0,
           totalAmount: 0,
         };
       }
 
-      // Map từng item
-      const cartItems = cart.CartItems.map((item) => {
+      // Map từng item kèm thông tin store
+      const allItems = cart.CartItems.map((item) => {
         const variant = item.ProductVariants;
         const product = variant?.Products;
+        const store   = product?.Stores;
         const unitPrice = Number(variant?.Price ?? product?.Price ?? 0);
 
         return {
           cartItemId : item.CartItemId,
           variantId  : item.VariantId,
           quantity   : item.Quantity,
+          storeId    : store?.StoreId,
+          storeName  : store?.StoreName,
           ProductVariants: {
             VariantId : variant?.VariantId,
             Size      : variant?.Size,
@@ -111,6 +115,7 @@ export class CartService {
                   ThumbnailUrl: product.ThumbnailUrl,
                   Price       : product.Price,
                   ProductImages: product.ProductImages,
+                  Stores      : store,
                 }
               : null,
           },
@@ -118,15 +123,33 @@ export class CartService {
         };
       });
 
-      // Tính tổng tiền
-      const totalAmount = cartItems.reduce((sum, i) => sum + i.lineTotal, 0);
+      // Nhóm theo StoreId
+      const groupedShops = allItems.reduce((acc, item) => {
+        const sId = item.storeId || 0;
+        const sName = item.storeName || 'Unknown Shop';
+        
+        let existingShop = acc.find((s) => s.storeId === sId);
+        if (!existingShop) {
+          existingShop = {
+            storeId: sId,
+            storeName: sName,
+            items: [],
+          };
+          acc.push(existingShop);
+        }
+        existingShop.items.push(item);
+        return acc;
+      }, [] as any[]);
 
-      this.logger.log(`Fetched cart for userId=${userId}, items=${cartItems.length}`);
+      // Tính tổng tiền toàn bộ giỏ hàng
+      const totalAmount = allItems.reduce((sum, i) => sum + i.lineTotal, 0);
+
+      this.logger.log(`Fetched cart for userId=${userId}, items=${allItems.length}, shops=${groupedShops.length}`);
 
       return {
         cartId     : cart.CartId,
-        cartItems,
-        totalItems : cartItems.length,
+        shops      : groupedShops,
+        totalItems : allItems.length,
         totalAmount,
       };
     } catch (error) {
