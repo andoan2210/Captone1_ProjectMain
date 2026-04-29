@@ -207,42 +207,7 @@ rejectProduct(
     return this.productService.getSuggestions(suggestDto.keyword || '');
   }
 
-  // =============================================
-  // COMPARE — Endpoints dành riêng cho trang So sánh sản phẩm
-  // Tách riêng tên để không trùng với search/suggestions phía trên
-  // =============================================
 
-  // Tìm kiếm sản phẩm cho trang so sánh
-  @Get('compare-search')
-  compareSearch(
-    @Query('keyword') keyword: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.productService.compareSearch(
-      keyword || '',
-      parseInt(page || '1', 10),
-      parseInt(limit || '8', 10),
-    );
-  }
-
-  // Gợi ý autocomplete cho trang so sánh
-  @Get('compare-suggestions')
-  compareSuggestions(@Query('keyword') keyword: string) {
-    return this.productService.compareSuggestions(keyword || '');
-  }
-
-  // Sản phẩm phổ biến (hiển thị trong modal chọn sản phẩm so sánh)
-  @Get('compare-popular')
-  comparePopular(@Query('limit') limit?: string) {
-    return this.productService.comparePopular(parseInt(limit || '8', 10));
-  }
-
-  // Chi tiết sản phẩm cho so sánh (trả kèm variants, sizes, colors, totalStock)
-  @Get('compare-detail/:id')
-  compareDetail(@Param('id', ParseIntPipe) id: number) {
-    return this.productService.compareDetail(id);
-  }
 
   @Get(':id')
   findOne(@Param('id') id: string) {
