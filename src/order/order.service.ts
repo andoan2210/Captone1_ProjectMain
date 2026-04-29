@@ -300,7 +300,10 @@ export class OrderService {
       const order = await this.prisma.orders.findFirst({
         where: {
           OrderId: orderId,
-          UserId: userId, 
+          OR: [
+            { UserId: userId },
+            { Stores: { OwnerId: userId } }
+          ]
         },
         include: {
           OrderItems: {

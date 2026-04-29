@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { SearchProductDto } from './dto/search-product.dto';
 import Fuse from 'fuse.js';
 
 type ProductVariantInput = {
+  variantId?: number | null;
   size: string;
   color?: string | null;
   stock: number;
@@ -277,6 +279,7 @@ export class ProductService {
       }
 
       return {
+        variantId: Number.isInteger(item?.variantId || item?.id) ? Number(item?.variantId || item?.id) : null,
         size,
         color,
         stock,
@@ -1094,21 +1097,79 @@ export class ProductService {
         });
 
         if (parsedVariants) {
-          await tx.productVariants.deleteMany({
-            where: {
-              ProductId: existingProduct.ProductId,
-            },
+          // 1. Lấy danh sách variants hiện có của sản phẩm trong DB
+          const existingVariants = await tx.productVariants.findMany({
+            where: { ProductId: existingProduct.ProductId },
           });
 
-          await tx.productVariants.createMany({
-            data: parsedVariants.map((variant) => ({
-              ProductId: existingProduct.ProductId,
-              Size: variant.size,
-              Color: variant.color,
-              Stock: variant.stock,
-              Price: variant.price,
-            })),
-          });
+          // 2. Phân loại và xử lý variants gửi lên
+          const handledVariantIds = new Set<number>();
+
+          for (const variant of parsedVariants) {
+            // Thử khớp theo ID trước (ưu tiên hàng đầu)
+            let existing = variant.variantId
+              ? existingVariants.find((v) => v.VariantId === variant.variantId)
+              : null;
+
+            // Nếu không khớp ID, thử khớp theo Size + Color
+            if (!existing) {
+              existing = existingVariants.find(
+                (v) =>
+                  v.Size.toLowerCase() === variant.size.toLowerCase() &&
+                  (v.Color?.toLowerCase() ?? null) ===
+                    (variant.color?.toLowerCase() ?? null),
+              );
+            }
+
+            if (existing) {
+              handledVariantIds.add(existing.VariantId);
+              // Cập nhật variant đã có
+              await tx.productVariants.update({
+                where: { VariantId: existing.VariantId },
+                data: {
+                  Size: variant.size,
+                  Color: variant.color,
+                  Stock: variant.stock,
+                  Price: variant.price,
+                },
+              });
+            } else {
+              // Thêm mới
+              await tx.productVariants.create({
+                data: {
+                  ProductId: existingProduct.ProductId,
+                  Size: variant.size,
+                  Color: variant.color,
+                  Stock: variant.stock,
+                  Price: variant.price,
+                },
+              });
+            }
+          }
+
+          // 3. Xử lý xóa những variants cũ KHÔNG CÒN trong danh sách gửi lên (dựa trên ID)
+          const variantsToDelete = existingVariants.filter(
+            (v) => !handledVariantIds.has(v.VariantId),
+          );
+
+          for (const vToDelete of variantsToDelete) {
+            try {
+              // Thử xóa, nếu dính Order/Cart (ràng buộc khóa ngoại) thì catch lỗi
+              await tx.productVariants.delete({
+                where: { VariantId: vToDelete.VariantId },
+              });
+            } catch (error) {
+              // Nếu không xóa được vì đã có người mua: 
+              // Giữ lại variant để bảo toàn lịch sử đơn hàng, nhưng set Stock = 0
+              this.logger.warn(
+                `Cannot delete variant ${vToDelete.VariantId} because it is referenced. Setting stock to 0 instead.`,
+              );
+              await tx.productVariants.update({
+                where: { VariantId: vToDelete.VariantId },
+                data: { Stock: 0 },
+              });
+            }
+          }
         }
 
         if (removeImageIds.length > 0) {
@@ -1235,80 +1296,167 @@ export class ProductService {
   }
 
   async getDetailProduct(id: number) {
-  try {
-    const product = await this.prisma.products.findFirst({
-      where: {
-        ProductId: id,
-        ApprovalStatus: 'APPROVED',
-        IsActive: true,
-        IsDeleted: false,
-      },
-      select: {
-        ProductId: true,
-        ProductName: true,
-        Price: true,
-        ThumbnailUrl: true,
-        Description: true,
-        Categories: {
-          select: { CategoryName: true },
-        },
-        ProductImages: {
-          select: {
-            ImageUrl: true,
-          },
-        },
-        ProductVariants: {
-          select: {
-            VariantId: true,
-            Size: true,
-            Color: true,
-            Stock: true,
-            Price: true,
-          },
-        },
-      },
-    });
-
-    if (!product) {
-      this.logger.error(`Approved product not found: productId=${id}`);
-      return null;
-    }
-
-    const sold = await this.prisma.orderItems.aggregate({
-      _sum: {
-        Quantity: true,
-      },
-      where: {
-        ProductVariants: {
+    try {
+      const product = await this.prisma.products.findFirst({
+        where: {
           ProductId: id,
+          ApprovalStatus: 'APPROVED',
+          IsActive: true,
+          IsDeleted: false,
         },
-      },
-    });
+        select: {
+          ProductId: true,
+          ProductName: true,
+          Price: true,
+          ThumbnailUrl: true,
+          Description: true,
+          Categories: {
+            select: { CategoryName: true },
+          },
+          ProductImages: {
+            select: {
+              ImageId: true,
+              ImageUrl: true,
+            },
+          },
+          ProductVariants: {
+            select: {
+              VariantId: true,
+              Size: true,
+              Color: true,
+              Stock: true,
+              Price: true,
+            },
+          },
+        },
+      });
 
-    this.logger.log(product);
+      if (!product) {
+        this.logger.error(`Approved product not found: productId=${id}`);
+        return null;
+      }
 
-    return {
-      id: product.ProductId,
-      name: product.ProductName,
-      price: product.Price,
-      description: product.Description,
-      thumbnail: product.ThumbnailUrl,
-      categoryName: product.Categories?.CategoryName ?? null,
-      images: product.ProductImages.map((img) => img.ImageUrl),
-      variants: product.ProductVariants.map((variant) => ({
-        variantId: variant.VariantId,
-        size: variant.Size,
-        color: variant.Color,
-        stock: variant.Stock,
-        price: variant.Price,
-      })),
-      sold: sold._sum.Quantity || 0,
-    };
-  } catch (error) {
-    this.logger.error(error);
-    throw error;
+      const sold = await this.prisma.orderItems.aggregate({
+        _sum: {
+          Quantity: true,
+        },
+        where: {
+          ProductVariants: {
+            ProductId: id,
+          },
+        },
+      });
+
+      return {
+        id: product.ProductId,
+        name: product.ProductName,
+        price: product.Price,
+        description: product.Description,
+        thumbnail: product.ThumbnailUrl,
+        categoryName: product.Categories?.CategoryName ?? null,
+        // ✅ Trả về object để đồng bộ với các endpoint khác
+        images: product.ProductImages.map((img) => ({
+          imageId: img.ImageId,
+          imageUrl: img.ImageUrl,
+        })),
+        variants: product.ProductVariants.map((variant) => ({
+          variantId: variant.VariantId,
+          size: variant.Size,
+          color: variant.Color,
+          stock: variant.Stock,
+          price: variant.Price,
+        })),
+        sold: sold._sum.Quantity || 0,
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
-}
+
+  // API dành riêng cho Shop Owner lấy chi tiết sản phẩm để chỉnh sửa
+  // Cho phép lấy cả sản phẩm PENDING và trả về đầy đủ IDs của ảnh.
+  async getMyProductDetail(ownerUserId: number, productId: number) {
+    try {
+      const store = await this.prisma.stores.findFirst({
+        where: { OwnerId: ownerUserId, IsDeleted: false },
+        select: { StoreId: true },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      const product = await this.prisma.products.findFirst({
+        where: {
+          ProductId: productId,
+          StoreId: store.StoreId,
+          IsDeleted: false,
+        },
+        select: {
+          ProductId: true,
+          ProductName: true,
+          Price: true,
+          ThumbnailUrl: true,
+          Description: true,
+          CategoryId: true,
+          IsActive: true,
+          ApprovalStatus: true,
+          Categories: {
+            select: { CategoryName: true },
+          },
+          ProductImages: {
+            select: {
+              ImageId: true,
+              ImageUrl: true,
+            },
+          },
+          ProductVariants: {
+            select: {
+              VariantId: true,
+              Size: true,
+              Color: true,
+              Stock: true,
+              Price: true,
+            },
+          },
+        },
+      });
+
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
+
+      return {
+        id: product.ProductId,
+        productId: product.ProductId,
+        name: product.ProductName,
+        productName: product.ProductName,
+        price: product.Price,
+        description: product.Description,
+        thumbnail: product.ThumbnailUrl,
+        thumbnailUrl: product.ThumbnailUrl,
+        categoryId: product.CategoryId,
+        categoryName: product.Categories?.CategoryName ?? null,
+        isActive: product.IsActive,
+        approvalStatus: product.ApprovalStatus,
+        images: product.ProductImages.map((img) => ({
+          imageId: img.ImageId,
+          imageUrl: img.ImageUrl,
+        })),
+        variants: product.ProductVariants.map((variant) => ({
+          variantId: variant.VariantId,
+          size: variant.Size,
+          color: variant.Color,
+          stock: variant.Stock,
+          price: variant.Price,
+        })),
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
 
   async remove(ownerUserId: number, productId: number) {
     try {
@@ -1401,6 +1549,46 @@ export class ProductService {
     }
   }
   
+  async deleteProductImage(ownerUserId: number, imageId: number) {
+    try {
+      const image = await this.prisma.productImages.findUnique({
+        where: { ImageId: imageId },
+        include: {
+          Products: {
+            include: {
+              Stores: true,
+            },
+          },
+        },
+      });
+
+      if (!image) {
+        throw new NotFoundException('Product image not found');
+      }
+
+      if (image.Products.Stores.OwnerId !== ownerUserId) {
+        throw new ForbiddenException(
+          'You do not have permission to delete this image',
+        );
+      }
+
+      await this.uploadService.deleteFile(image.ImageUrl);
+
+      await this.prisma.productImages.delete({
+        where: { ImageId: imageId },
+      });
+
+      this.logger.log(`Deleted product image: imageId=${imageId}`);
+
+      return {
+        message: 'Delete product image successfully',
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
   async getProductShop(idShop: number, limit: number) {
   try {
     const cacheKey = `product:shop:${idShop}:${limit}`;

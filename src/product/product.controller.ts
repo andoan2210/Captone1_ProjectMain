@@ -77,6 +77,13 @@ export class ProductController {
       status,
     );
   }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
+  @Get('my-product/:id')
+  getMyProductDetail(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.productService.getMyProductDetail(req.user.userId, id);
+  }
   
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SHOP_OWNER)
@@ -110,6 +117,13 @@ export class ProductController {
   @Delete(':id')
   remove(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.productService.remove(req.user.userId, id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
+  @Delete('images/:imageId')
+  deleteImage(@Req() req, @Param('imageId', ParseIntPipe) imageId: number) {
+    return this.productService.deleteProductImage(req.user.userId, imageId);
   }
 
 // FC.32
