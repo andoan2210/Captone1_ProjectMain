@@ -8,9 +8,7 @@ datasource db {
 }
 
 model AI_Recommendations {
-
-  RecommendationId Int       @id(map: "PK__AI_Recom__AA15BEE42B0CD4C2") @default(autoincrement())
-
+  RecommendationId Int       @id(map: "PK__AI_Recom__AA15BEE4EA56525B") @default(autoincrement())
   UserId           Int
   ProductId        Int
   ConfidenceScore  Float?
@@ -21,9 +19,7 @@ model AI_Recommendations {
 }
 
 model CartItems {
-
-  CartItemId      Int             @id(map: "PK__CartItem__488B0B0A61200564") @default(autoincrement())
-
+  CartItemId      Int             @id(map: "PK__CartItem__488B0B0AC86D85D0") @default(autoincrement())
   CartId          Int
   Quantity        Int
   VariantId       Int
@@ -34,19 +30,15 @@ model CartItems {
 }
 
 model Carts {
-
-  CartId    Int         @id(map: "PK__Carts__51BCD7B7941905E0") @default(autoincrement())
-  UserId    Int         @unique(map: "UQ__Carts__1788CC4D0690DFBB")
-
+  CartId    Int         @id(map: "PK__Carts__51BCD7B7989A9170") @default(autoincrement())
+  UserId    Int         @unique(map: "UQ__Carts__1788CC4D4E82D1F1")
   CreatedAt DateTime?   @default(dbgenerated("sysdatetime()"), map: "DF__Carts__CreatedAt__66603565")
   CartItems CartItems[]
   Users     Users       @relation(fields: [UserId], references: [UserId], onDelete: Cascade, onUpdate: NoAction, map: "FK_Cart_User")
 }
 
 model Categories {
-
-  CategoryId       Int          @id(map: "PK__Categori__19093A0B3054E42B") @default(autoincrement())
-
+  CategoryId       Int          @id(map: "PK__Categori__19093A0BB4DA6EAF") @default(autoincrement())
   CategoryName     String       @db.NVarChar(150)
   ParentId         Int?
   IsActive         Boolean?     @default(true, map: "DF__Categorie__IsAct__6754599E")
@@ -56,9 +48,7 @@ model Categories {
 }
 
 model Conversations {
-
-  ConversationId                         Int        @id(map: "PK__Conversa__C050D877DC9663C1") @default(autoincrement())
-
+  ConversationId                         Int        @id(map: "PK__Conversa__C050D877E6903AF9") @default(autoincrement())
   ClientId                               Int
   ShopOwnerId                            Int
   CreatedAt                              DateTime?  @default(dbgenerated("sysdatetime()"), map: "DF__Conversat__Creat__68487DD7")
@@ -68,11 +58,9 @@ model Conversations {
 }
 
 model Invoices {
-
-  InvoiceId      Int       @id(map: "PK__Invoices__D796AAB5E31BD6AF") @default(autoincrement())
-  OrderId        Int       @unique(map: "UQ__Invoices__C3905BCECEE59D95")
-  InvoiceNumber  String    @unique(map: "UQ__Invoices__D776E981ED8D49BC") @db.NVarChar(50)
-
+  InvoiceId      Int       @id(map: "PK__Invoices__D796AAB535D59A9D") @default(autoincrement())
+  OrderId        Int       @unique(map: "UQ__Invoices__C3905BCE85A99839")
+  InvoiceNumber  String    @unique(map: "UQ__Invoices__D776E981A25D08DC") @db.NVarChar(50)
   IssueDate      DateTime? @default(dbgenerated("sysdatetime()"), map: "DF__Invoices__IssueD__693CA210")
   TotalAmount    Decimal   @db.Decimal(18, 2)
   BillingName    String    @db.NVarChar(150)
@@ -84,9 +72,7 @@ model Invoices {
 }
 
 model Messages {
-
-  MessageId      Int           @id(map: "PK__Messages__C87C0C9CE1B45061") @default(autoincrement())
-
+  MessageId      Int           @id(map: "PK__Messages__C87C0C9C54A7ADA2") @default(autoincrement())
   ConversationId Int
   SenderId       Int
   MessageContent String        @db.NVarChar(Max)
@@ -96,9 +82,7 @@ model Messages {
 }
 
 model Notifications {
-
-  NotificationId Int       @id(map: "PK__Notifica__20CF2E127D4A71C9") @default(autoincrement())
-
+  NotificationId Int       @id(map: "PK__Notifica__20CF2E1203F7D855") @default(autoincrement())
   UserId         Int
   Title          String?   @db.NVarChar(200)
   Content        String?   @db.NVarChar(Max)
@@ -108,9 +92,7 @@ model Notifications {
 }
 
 model OrderItems {
-
-  OrderItemId     Int             @id(map: "PK__OrderIte__57ED068169698070") @default(autoincrement())
-
+  OrderItemId     Int             @id(map: "PK__OrderIte__57ED068120198707") @default(autoincrement())
   OrderId         Int
   Quantity        Int
   UnitPrice       Decimal         @db.Decimal(18, 2)
@@ -120,9 +102,7 @@ model OrderItems {
 }
 
 model Orders {
-
-  OrderId         Int             @id(map: "PK__Orders__C3905BCF9D97EFF6") @default(autoincrement())
-
+  OrderId         Int             @id(map: "PK__Orders__C3905BCFAD151C7A") @default(autoincrement())
   UserId          Int
   StoreId         Int
   TotalAmount     Decimal         @db.Decimal(18, 2)
@@ -142,9 +122,7 @@ model Orders {
 }
 
 model OrderVouchers {
-
-  OrderVoucherId Int      @id(map: "PK__OrderVou__5B3AFED46736D2FC") @default(autoincrement())
-
+  OrderVoucherId Int      @id(map: "PK__OrderVou__5B3AFED4325EBCF4") @default(autoincrement())
   OrderId        Int
   VoucherId      Int
   Orders         Orders   @relation(fields: [OrderId], references: [OrderId], onDelete: Cascade, onUpdate: NoAction, map: "FK_OrderVoucher_Order")
@@ -152,9 +130,7 @@ model OrderVouchers {
 }
 
 model Payments {
-
-  PaymentId          Int                 @id(map: "PK__Payments__9B556A38CD8EF204") @default(autoincrement())
-
+  PaymentId          Int                 @id(map: "PK__Payments__9B556A387636F68A") @default(autoincrement())
   OrderId            Int
   PaymentMethod      String              @db.NVarChar(50)
   TransactionCode    String?             @db.NVarChar(150)
@@ -168,18 +144,14 @@ model Payments {
 }
 
 model ProductImages {
-
-  ImageId   Int      @id(map: "PK__ProductI__7516F70CD47DDD0D") @default(autoincrement())
-
+  ImageId   Int      @id(map: "PK__ProductI__7516F70CFAEE22B2") @default(autoincrement())
   ProductId Int
   ImageUrl  String   @db.NVarChar(500)
   Products  Products @relation(fields: [ProductId], references: [ProductId], onDelete: Cascade, onUpdate: NoAction, map: "FK_ProductImage_Product")
 }
 
 model Products {
-
-  ProductId          Int                  @id(map: "PK__Products__B40CC6CD70D8D499") @default(autoincrement())
-
+  ProductId          Int                  @id(map: "PK__Products__B40CC6CDBE5BB425") @default(autoincrement())
   StoreId            Int
   CategoryId         Int?
   ProductName        String               @db.NVarChar(200)
@@ -204,9 +176,7 @@ model Products {
 }
 
 model ProductTryHistory {
-
-  TryId       Int       @id(map: "PK__ProductT__BBBDD7EE01E31ECD") @default(autoincrement())
-
+  TryId       Int       @id(map: "PK__ProductT__BBBDD7EE5DC301AB") @default(autoincrement())
   UserId      Int
   ProductId   Int
   TryImageUrl String?   @db.NVarChar(500)
@@ -216,10 +186,8 @@ model ProductTryHistory {
 }
 
 model Stores {
-
-  StoreId     Int        @id(map: "PK__Stores__3B82F1010A452B1B") @default(autoincrement())
-  OwnerId     Int        @unique(map: "UQ__Stores__819385B9F5DCF6CD")
-
+  StoreId     Int        @id(map: "PK__Stores__3B82F10124FF873C") @default(autoincrement())
+  OwnerId     Int        @unique(map: "UQ__Stores__819385B9E3D26D68")
   StoreName   String     @db.NVarChar(150)
   Description String?    @db.NVarChar(Max)
   LogoUrl     String?    @db.NVarChar(500)
@@ -233,11 +201,9 @@ model Stores {
 }
 
 model Users {
-
-  UserId                                         Int                  @id(map: "PK__Users__1788CC4C28715DA9") @default(autoincrement())
+  UserId                                         Int                  @id(map: "PK__Users__1788CC4C1AEE3D1F") @default(autoincrement())
   FullName                                       String               @db.NVarChar(150)
-  Email                                          String               @unique(map: "UQ__Users__A9D1053468DA8C67") @db.NVarChar(150)
-
+  Email                                          String               @unique(map: "UQ__Users__A9D10534A2E2EBC0") @db.NVarChar(150)
   PasswordHash                                   String?              @db.NVarChar(255)
   Phone                                          String?              @db.NVarChar(20)
   AvatarUrl                                      String?              @db.NVarChar(500)
@@ -265,11 +231,9 @@ model Users {
 }
 
 model Vouchers {
-
-  VoucherId       Int             @id(map: "PK__Vouchers__3AEE7921761840EC") @default(autoincrement())
+  VoucherId       Int             @id(map: "PK__Vouchers__3AEE7921CBFBAC09") @default(autoincrement())
   StoreId         Int
-  Code            String          @unique(map: "UQ__Vouchers__A25C5AA72A481FF5") @db.NVarChar(50)
-
+  Code            String          @unique(map: "UQ__Vouchers__A25C5AA7FA7BAAA6") @db.NVarChar(50)
   DiscountPercent Int?
   Quantity        Int
   ExpiredDate     DateTime?
@@ -279,9 +243,7 @@ model Vouchers {
 }
 
 model UserAddresses {
-
-  AddressId     Int       @id(map: "PK__UserAddr__091C2AFB828954E1") @default(autoincrement())
-
+  AddressId     Int       @id(map: "PK__UserAddr__091C2AFBD5E8545A") @default(autoincrement())
   UserId        Int
   FullName      String    @db.NVarChar(150)
   Phone         String    @db.NVarChar(20)
@@ -296,9 +258,7 @@ model UserAddresses {
 }
 
 model UserPaymentMethods {
-
-  PaymentMethodId Int        @id(map: "PK__UserPaym__DC31C1D338849896") @default(autoincrement())
-
+  PaymentMethodId Int        @id(map: "PK__UserPaym__DC31C1D35E479AD4") @default(autoincrement())
   UserId          Int
   Type            String     @db.NVarChar(50)
   Provider        String?    @db.NVarChar(50)
@@ -311,9 +271,7 @@ model UserPaymentMethods {
 }
 
 model ProductVariants {
-
-  VariantId  Int          @id(map: "PK__ProductV__0EA23384E9BBD6EE") @default(autoincrement())
-
+  VariantId  Int          @id(map: "PK__ProductV__0EA23384015A3358") @default(autoincrement())
   ProductId  Int
   Size       String       @db.NVarChar(10)
   Color      String?      @db.NVarChar(50)

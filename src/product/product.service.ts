@@ -63,9 +63,7 @@ export class ProductService {
     try {
       this.logger.log('Building product search cache...');
       const products = await this.prisma.products.findMany({
-
-        where: { IsActive: true, IsDeleted: false, ApprovalStatus: 'APPROVED' },
-
+        where: { IsActive: true, IsDeleted: false },
         select: {
           ProductId: true,
           ProductName: true,
@@ -143,67 +141,43 @@ export class ProductService {
     return results.map(r => r.item.name);
   }
 
-
-  // ========================= TÍNH NĂNG TÌM KIẾM ==============================
   async searchProducts(searchDto: SearchProductDto) {
     const { keyword, categoryId, minPrice, maxPrice, sortBy = 'relevance', page = 1, limit = 20 } = searchDto;
     
-    // Bước 1: Lấy toàn bộ không gian tìm kiếm (từ Redis Cache hoặc Query DB nếu chưa có)
     let data = await this.getSearchSpace();
     
-    // Bước 2: LỌC DỮ LIỆU (Filters)
-    // TỐI ƯU 1: Gom các bộ lọc (filter) lên chạy TRƯỚC
-    // Việc này giúp giảm đáng kể số lượng phần tử (search space) trước khi đưa vào hàm Fuse.js
-    // TỐI ƯU 2: Gộp 3 vòng lặp filter riêng biệt thành 1 vòng lặp duy nhất (O(N) thay vì O(3N))
-    // TỐI ƯU 3: Ép kiểu Number() ở ngoài vòng lặp thay vì gọi Number() hàng ngàn lần ở mỗi phần tử
-    if (categoryId || minPrice !== undefined || maxPrice !== undefined) {
-      const filterCategoryId = categoryId ? Number(categoryId) : undefined;
-      const filterMinPrice = minPrice !== undefined ? Number(minPrice) : undefined;
-      const filterMaxPrice = maxPrice !== undefined ? Number(maxPrice) : undefined;
-
-      data = data.filter((p: any) => {
-        if (filterCategoryId && p.categoryId !== filterCategoryId) return false;
-        if (filterMinPrice !== undefined && p.price < filterMinPrice) return false;
-        if (filterMaxPrice !== undefined && p.price > filterMaxPrice) return false;
-        return true;
-      });
-    }
-    
-    // Bước 3: TÌM KIẾM BẰNG TỪ KHOÁ (Fuzzy Search - In Memory)
-    // Lúc này 'data' đã được lọc bớt, nên Fuse.js sẽ tốn ít CPU / thời gian hơn rất nhiều
     if (keyword && keyword.trim() !== '') {
       const fuse = new Fuse<any>(data, {
         keys: [
-            { name: 'name', weight: 0.7 },        // Ưu tiên khớp tên sản phẩm nhất
-            { name: 'description', weight: 0.2 }, // Nội dung mô tả
-            { name: 'metaTags', weight: 0.1 }     // Các từ khoá không dấu và từ đồng nghĩa
+            { name: 'name', weight: 0.7 },
+            { name: 'description', weight: 0.2 },
+            { name: 'metaTags', weight: 0.1 }
         ],
-        threshold: 0.25, // Độ sai số cho phép (25%) để tìm kiếm gần đúng
+        threshold: 0.25, 
         ignoreLocation: true,
       });
       const results = fuse.search(keyword);
-      data = results.map(r => r.item); // Lấy item thật ra sau khi đã được Fuse.js chấm điểm và sắp xếp theo Relevance
+      data = results.map(r => r.item);
     }
 
-    // Bước 4: SẮP XẾP KẾT QUẢ (Sorting)
-    // Nếu người dùng không chỉ định xếp theo gì HOẶC không có keyword (nghĩa là không có điểm relevance của Fuse.js)
+    if (categoryId) data = data.filter((p: any) => p.categoryId === Number(categoryId));
+    if (minPrice !== undefined) data = data.filter((p: any) => p.price >= Number(minPrice));
+    if (maxPrice !== undefined) data = data.filter((p: any) => p.price <= Number(maxPrice));
+
     if (sortBy !== 'relevance' || !keyword) {
       data.sort((a: any, b: any) => {
-        if (sortBy === 'sales') return b.sold - a.sold;            // Bán chạy nhất
-        if (sortBy === 'price-asc') return a.price - b.price;      // Giá thấp -> cao
-        if (sortBy === 'price-desc') return b.price - a.price;     // Giá cao -> thấp
-        if (sortBy === 'ctime') return b.createdAt - a.createdAt;  // Mới nhất
-        return b.createdAt - a.createdAt;                          // Mặc định: Mới nhất
+        if (sortBy === 'sales') return b.sold - a.sold;
+        if (sortBy === 'price-asc') return a.price - b.price;
+        if (sortBy === 'price-desc') return b.price - a.price;
+        if (sortBy === 'ctime') return b.createdAt - a.createdAt;
+        return b.createdAt - a.createdAt; 
       });
     }
 
-    // Bước 5: PHÂN TRANG (Pagination)
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const skip = (pageNum - 1) * limitNum;
-    const paginatedItems = data.slice(skip, skip + limitNum); // Cắt mảng lấy đúng số lượng cần thiết
-
-    // Bước 6: FORMAT & TRẢ VỀ KẾT QUẢ
+    const paginatedItems = data.slice(skip, skip + limitNum);
 
     const returnData = paginatedItems.map((p: any) => ({
       id: p.id,
@@ -220,10 +194,8 @@ export class ProductService {
       pagination: {
         page: pageNum,
         limit: limitNum,
-
-        totalItems: data.length, // Tổng số lượng sản phẩm (để client tính toán trang)
-        totalPages: Math.ceil(data.length / limitNum), // Tổng số trang
-
+        totalItems: data.length,
+        totalPages: Math.ceil(data.length / limitNum),
       }
     };
   }
@@ -965,9 +937,7 @@ export class ProductService {
         throw new NotFoundException('Product not found');
       }
       // Theo rule hiện tại: sản phẩm đã REJECTED không được sửa để gửi duyệt lại.
-
-      // Shopowner phải tạo sản phẩm mới.
-
+// Shopowner phải tạo sản phẩm mới.
       if (existingProduct.ApprovalStatus === 'REJECTED') {
         throw new BadRequestException(
           'Rejected product cannot be updated. Please create a new product.',
@@ -1438,22 +1408,6 @@ export class ProductService {
             CategoryName: true,
           },
         },
-
-        ProductVariants: {
-          select: {
-            VariantId: true,
-            Size: true,
-            Color: true,
-            Stock: true,
-            Price: true,
-            OrderItems: {
-              select: {
-                Quantity: true,
-              },
-            },
-          },
-        },
-
       },
       orderBy: {
         CreatedAt: 'desc',
@@ -1461,38 +1415,20 @@ export class ProductService {
     });
 
     if (product.length === 0) {
-
-      this.logger.log('No products found for shop');
+      this.logger.error('Product not found');
       return [];
     }
 
-    const result = product.map((p) => {
-      // Tính tổng sold từ OrderItems
-      let sold = 0;
-      p.ProductVariants.forEach((pv) => {
-        pv.OrderItems.forEach((oi) => {
-          sold += Number(oi.Quantity || 0);
-        });
-      });
+    this.logger.log(product);
 
-      return {
-        id: p.ProductId,
-        name: p.ProductName,
-        price: Number(p.Price),
-        thumbnail: p.ThumbnailUrl,
-        createdAt: p.CreatedAt,
-        categoryName: p.Categories?.CategoryName ?? null,
-        sold: sold,
-        variants: p.ProductVariants.map((v) => ({
-          variantId: v.VariantId,
-          size: v.Size,
-          color: v.Color,
-          stock: v.Stock,
-          price: Number(v.Price),
-        })),
-      };
-    });
-
+    const result = product.map((p) => ({
+      ProductId: p.ProductId,
+      ProductName: p.ProductName,
+      Price: p.Price,
+      ThumbnailUrl: p.ThumbnailUrl,
+      CreatedAt: p.CreatedAt,
+      CategoryName: p.Categories?.CategoryName ?? null,
+    }));
 
     await this.redis.set(cacheKey, JSON.stringify(result), 60 * 1);
     this.logger.log('Shop product from DB');
@@ -1861,5 +1797,30 @@ async rejectProduct(
     throw error;
   }
 }
+
+  // =============================================
+  // COMPARE — Methods dành riêng cho trang So sánh sản phẩm
+  // =============================================
+
+  async compareSearch(keyword: string, page: number, limit: number) {
+    const result = await this.searchProducts({
+      keyword,
+      page,
+      limit,
+    });
+    return result;
+  }
+
+  async compareSuggestions(keyword: string) {
+    return this.getSuggestions(keyword);
+  }
+
+  async comparePopular(limit: number) {
+    return this.getNewProduct(limit);
+  }
+
+  async compareDetail(id: number) {
+    return this.getDetailProduct(id);
+  }
 
 }
