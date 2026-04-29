@@ -73,6 +73,22 @@ export class StoreService {
         IsActive: true,
         IsDeleted: true,
         CreatedAt: true,
+        //Quốc sửa cửa hàng///////////
+        _count: {
+          select: {
+            Products: {
+              where: {
+                IsDeleted: false,
+              }
+            },
+            Orders: true,
+            Vouchers: {
+              where: {
+                IsActive: true,
+              }
+            }
+          }
+        }
       },
     });
 
@@ -93,6 +109,9 @@ export class StoreService {
         isActive: store.IsActive,
         isDeleted: store.IsDeleted,
         createdAt: store.CreatedAt,
+        totalProducts: store._count?.Products || 0,
+        totalOrders: store._count?.Orders || 0,
+        totalVouchers: store._count?.Vouchers || 0,
       },
     };
   }
@@ -260,8 +279,100 @@ async getStoreByBest(limit: number) {
   }
 
   
-  findOne(id: number) {
-    return `This action returns a #${id} store`;
+  // API GET /store/:id
+  // Dùng để user xem chi tiết thông tin shop (trang ShopDetail public)
+  // Trả về thông tin cửa hàng, số sản phẩm, thông tin owner
+  async findOne(id: number) {
+    try {
+      const cacheKey = `store:detail:${id}`;
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        this.logger.log('Store detail from cache');
+        return JSON.parse(cached);
+      }
+
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          StoreId: id,
+          IsActive: true,
+          IsDeleted: false,
+        },
+        select: {
+          StoreId: true,
+          OwnerId: true,
+          StoreName: true,
+          Description: true,
+          LogoUrl: true,
+          IsActive: true,
+          CreatedAt: true,
+          Users: {
+            select: {
+              FullName: true,
+              AvatarUrl: true,
+            },
+          },
+          // Đếm số sản phẩm đã được duyệt và đang active
+          _count: {
+            select: {
+              Products: {
+                where: {
+                  ApprovalStatus: 'APPROVED',
+                  IsActive: true,
+                  IsDeleted: false,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      // Tính rating trung bình (dựa trên tổng sold - placeholder logic)
+      // Hiện tại chưa có bảng Review nên trả rating mặc định
+      const soldResult = await this.prisma.$queryRaw<
+        { TotalSold: number }[]
+      >`
+        SELECT ISNULL(SUM(oi.Quantity), 0) as TotalSold
+        FROM Products p
+        JOIN ProductVariants pv ON pv.ProductId = p.ProductId
+        JOIN OrderItems oi ON oi.VariantId = pv.VariantId
+        WHERE p.StoreId = ${id}
+          AND p.IsActive = 1
+          AND p.IsDeleted = 0
+          AND p.ApprovalStatus = 'APPROVED'
+      `;
+
+      const totalSold = Number(soldResult[0]?.TotalSold || 0);
+
+      const result = {
+        storeId: store.StoreId,
+        ownerId: store.OwnerId,
+        storeName: store.StoreName,
+        description: store.Description,
+        logoUrl: store.LogoUrl,
+        isActive: store.IsActive,
+        createdAt: store.CreatedAt,
+        ownerName: store.Users?.FullName || null,
+        ownerAvatar: store.Users?.AvatarUrl || null,
+        productCount: store._count.Products,
+        totalSold: totalSold,
+        // Placeholder: chưa có bảng Follow / Review
+        followerCount: 0,
+        rating: 4.9,
+      };
+
+      // Cache 5 phút
+      await this.redis.set(cacheKey, JSON.stringify(result), 60 * 5);
+      this.logger.log(`Store detail from DB: storeId=${id}`);
+
+      return result;
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 
   update(id: number, updateStoreDto: UpdateStoreDto) {
