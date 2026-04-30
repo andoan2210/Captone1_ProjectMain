@@ -96,11 +96,34 @@ export class OrderService {
             || (storeItemsMap.size === 1 ? dto.voucherCode : undefined);
 
           if (voucherCode) {
-            const voucher = await tx.vouchers.findUnique({ where: { Code: voucherCode } });
+            const voucher = await tx.vouchers.findUnique({
+              where: { Code: voucherCode },
+              include: { VoucherProducts: true }
+            });
+
             if (!voucher || !voucher.IsActive) throw new BadRequestException(`Voucher "${voucherCode}" không hợp lệ`);
             if (voucher.ExpiredDate && voucher.ExpiredDate < new Date()) throw new BadRequestException(`Voucher "${voucherCode}" đã hết hạn`);
             if (voucher.StoreId && voucher.StoreId !== storeId) {
               throw new BadRequestException(`Voucher "${voucherCode}" không áp dụng cho shop này`);
+            }
+
+            // Tính toán tổng tiền sản phẩm hợp lệ
+            let eligibleSubtotal = 0;
+            if (voucher.ApplyType === 'SPECIFIC') {
+              const eligibleProductIds = voucher.VoucherProducts.map(vp => vp.ProductId);
+              const eligibleItems = items.filter(item => eligibleProductIds.includes(item.productId));
+              eligibleSubtotal = eligibleItems.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
+
+              if (eligibleSubtotal === 0) {
+                throw new BadRequestException(`Voucher "${voucherCode}" không áp dụng cho các sản phẩm bạn đã chọn`);
+              }
+            } else {
+              eligibleSubtotal = subTotal;
+            }
+
+            // Kiểm tra giá trị đơn hàng tối thiểu (trên các SP hợp lệ)
+            if (voucher.MinOrderValue && Number(eligibleSubtotal) < Number(voucher.MinOrderValue)) {
+              throw new BadRequestException(`Đơn hàng chưa đạt giá trị tối thiểu (${Number(voucher.MinOrderValue).toLocaleString()}đ) để sử dụng voucher này`);
             }
 
             const updateVoucher = await tx.vouchers.updateMany({
@@ -110,7 +133,14 @@ export class OrderService {
             if (updateVoucher.count === 0) throw new Error(`Voucher "${voucherCode}" đã hết lượt sử dụng`);
 
             appliedVoucherId = voucher.VoucherId;
-            discount = (subTotal * (voucher.DiscountPercent || 0)) / 100;
+            
+            // Tính số tiền giảm dựa trên % và làm tròn để tránh lỗi số thực (ví dụ 19.998đ)
+            discount = Math.round((eligibleSubtotal * (voucher.DiscountPercent || 0)) / 100);
+
+            // Áp dụng giảm giá tối đa (nếu có)
+            if (voucher.MaxDiscountValue && discount > Number(voucher.MaxDiscountValue)) {
+              discount = Number(voucher.MaxDiscountValue);
+            }
           }
 
           const storeTotal = subTotal - discount + SHIPPING_FEE;
@@ -607,6 +637,7 @@ export class OrderService {
 
         return {
           variantId: i.ProductVariants.VariantId,
+          productId: i.ProductVariants.ProductId,
           productImage: i.ProductVariants.Products.ThumbnailUrl,
           productName: i.ProductVariants.Products.ProductName,
           price,
@@ -649,6 +680,7 @@ export class OrderService {
       items = [
         {
           variantId: variant.VariantId,
+          productId: variant.ProductId,
           productName: variant.Products.ProductName,
           productImage: variant.Products.ThumbnailUrl,
           price,
@@ -692,6 +724,7 @@ export class OrderService {
       if (voucherCode) {
         const voucher = await this.prisma.vouchers.findUnique({
           where: { Code: voucherCode },
+          include: { VoucherProducts: true },
         });
 
         if (!voucher) {
@@ -707,15 +740,59 @@ export class OrderService {
         }
 
         // Kiểm tra quyền sở hữu của Voucher (Shopee-style)
-        // Nếu voucher.StoreId có giá trị thì nó PHẢI khớp với storeId của nhóm này
         if (voucher.StoreId && voucher.StoreId !== storeId) {
           throw new BadRequestException(`Voucher "${voucherCode}" không áp dụng cho shop này`);
         }
 
-        const discountPercent = voucher.DiscountPercent || 0;
-        const shopDiscount = (group.subTotal * discountPercent) / 100;
-        group.discount = shopDiscount;
-        totalDiscount += shopDiscount;
+        // Tính toán sản phẩm hợp lệ và gắn tag đồng thời
+        let eligibleSubtotal = 0;
+        const eligibleProductIds = voucher.ApplyType === 'SPECIFIC'
+          ? voucher.VoucherProducts.map((vp) => vp.ProductId)
+          : null;
+
+        // Reset lại trạng thái voucher trên item trước khi tính
+        group.items.forEach(item => {
+          item.isVoucherApplied = false;
+          item.voucherDiscountLabel = '';
+        });
+
+        group.items.forEach((item) => {
+          const isEligible = !eligibleProductIds || eligibleProductIds.includes(item.productId);
+          if (isEligible) {
+            eligibleSubtotal += item.total;
+          }
+        });
+
+        if (voucher.ApplyType === 'SPECIFIC' && eligibleSubtotal === 0) {
+          group.voucherError = `Voucher không áp dụng cho các sản phẩm đã chọn`;
+        }
+
+        // Kiểm tra giá trị tối thiểu
+        if (!group.voucherError && voucher.MinOrderValue && Number(eligibleSubtotal) < Number(voucher.MinOrderValue)) {
+          group.voucherError = `Chưa đạt giá trị tối thiểu ${Number(voucher.MinOrderValue).toLocaleString()}đ`;
+        }
+
+        if (!group.voucherError) {
+          const discountPercent = voucher.DiscountPercent || 0;
+          let shopDiscount = Math.round((eligibleSubtotal * discountPercent) / 100);
+
+          // Áp dụng giảm giá tối đa
+          if (voucher.MaxDiscountValue && shopDiscount > Number(voucher.MaxDiscountValue)) {
+            shopDiscount = Number(voucher.MaxDiscountValue);
+          }
+
+          group.discount = shopDiscount;
+          totalDiscount += shopDiscount;
+
+          // Gắn tag cho các sản phẩm thực sự đóng góp vào eligibleSubtotal
+          group.items.forEach((item) => {
+            const isEligible = !eligibleProductIds || eligibleProductIds.includes(item.productId);
+            if (isEligible) {
+              item.isVoucherApplied = true;
+              item.voucherDiscountLabel = `-${voucher.DiscountPercent}%`;
+            }
+          });
+        }
       }
       group.shopTotal = group.subTotal - group.discount + group.shippingFee;
     }

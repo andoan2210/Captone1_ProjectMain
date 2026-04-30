@@ -11,47 +11,78 @@ export class CategoryService {
     private readonly logger : Logger,
     private readonly redis : RedisService
   ){}
-  create(createCategoryDto: CreateCategoryDto) {
-    return 'This action adds a new category';
+  async create(createCategoryDto: CreateCategoryDto) {
+    try {
+      const category = await this.prisma.categories.create({
+        data: {
+          CategoryName: createCategoryDto.CategoryName,
+          ParentId: createCategoryDto.ParentId,
+          IsActive: true,
+        },
+      });
+      await this.clearCategoryCache();
+      return category;
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 
   async findAll(limit: number) {
     try {
-      const safeLimit = Math.min(limit || 10, 20);
-      const cacheKey = `category:all:${safeLimit}`;
+      const safeLimit = Math.min(limit || 50, 100);
+      const cacheKey = `category_v2:all:${safeLimit}`;
 
       const cached = await this.redis.get(cacheKey);
       if (cached) {
-        this.logger.log('Category from cache');
         return JSON.parse(cached);
       }
 
       const categories = await this.prisma.categories.findMany({
         take: safeLimit,
-        where: {
-          IsActive: true,
-        },
-        orderBy: {
-          CategoryId: 'asc',
-        },
-        select: {
-          CategoryId: true,
-          CategoryName: true,
-          ParentId: true,
+        where: { IsActive: true },
+        orderBy: { CategoryId: 'asc' },
+        include: {
+          Categories: true, // Parent
         },
       });
 
-      const result = categories.map(c => ({
+      const result = categories.map((c) => ({
         id: c.CategoryId,
         name: c.CategoryName,
         parentId: c.ParentId,
+        parentName: c.Categories?.CategoryName || null,
+        IsActive: c.IsActive,
       }));
 
       await this.redis.set(cacheKey, JSON.stringify(result), 60 * 15);
-
-      this.logger.log('Category from DB');
       return result;
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
 
+  async findAllAdmin() {
+    try {
+      const categories = await this.prisma.categories.findMany({
+        orderBy: { CategoryId: 'desc' },
+        include: {
+          Categories: {
+            select: {
+              CategoryName: true,
+            },
+          },
+        },
+      });
+
+      return categories.map((c) => ({
+        id: c.CategoryId,
+        name: c.CategoryName,
+        parentId: c.ParentId,
+        parentName: c.Categories?.CategoryName || null,
+        IsActive: c.IsActive,
+      }));
     } catch (error) {
       this.logger.error(error);
       throw error;
@@ -60,12 +91,11 @@ export class CategoryService {
 
   async getCategoryByParent(parentId: number, limit: number) {
     try {
-      const safeLimit = Math.min(limit || 10, 20);
-      const cacheKey = `category:parent:${parentId}:${safeLimit}`;
+      const safeLimit = Math.min(limit || 50, 100);
+      const cacheKey = `category_v2:parent:${parentId}:${safeLimit}`;
 
       const cached = await this.redis.get(cacheKey);
       if (cached) {
-        this.logger.log('Category from cache');
         return JSON.parse(cached);
       }
 
@@ -75,41 +105,82 @@ export class CategoryService {
           ParentId: parentId,
           IsActive: true,
         },
-        orderBy: {
-          CategoryId: 'asc',
-        },
-        select: {
-          CategoryId: true,
-          CategoryName: true,
-          ParentId: true,
-        },
+        orderBy: { CategoryId: 'asc' },
       });
 
-      const result = categories.map(c => ({
+      const result = categories.map((c) => ({
         id: c.CategoryId,
         name: c.CategoryName,
         parentId: c.ParentId,
+        IsActive: c.IsActive,
       }));
 
       await this.redis.set(cacheKey, JSON.stringify(result), 60 * 15);
-      this.logger.log('Category from DB');
       return result;
-
     } catch (error) {
       this.logger.error(error);
       throw error;
     }
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} category`;
+  async findOne(id: number) {
+    try {
+      const category = await this.prisma.categories.findUnique({
+        where: { CategoryId: id },
+        include: {
+          Categories: true,
+        },
+      });
+      if (!category) {
+        throw new Error('Category not found');
+      }
+      return {
+        id: category.CategoryId,
+        name: category.CategoryName,
+        parentId: category.ParentId,
+        parentName: category.Categories?.CategoryName || null,
+        IsActive: category.IsActive,
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 
-  update(id: number, updateCategoryDto: UpdateCategoryDto) {
-    return `This action updates a #${id} category`;
+  async update(id: number, updateCategoryDto: UpdateCategoryDto) {
+    try {
+      const category = await this.prisma.categories.update({
+        where: { CategoryId: id },
+        data: updateCategoryDto,
+      });
+      await this.clearCategoryCache();
+      return category;
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} category`;
+  async remove(id: number) {
+    try {
+      // Soft delete: set IsActive to false
+      const category = await this.prisma.categories.update({
+        where: { CategoryId: id },
+        data: { IsActive: false },
+      });
+      await this.clearCategoryCache();
+      return category;
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
+  private async clearCategoryCache() {
+    try {
+      await this.redis.deleteByPattern('category_v2:*');
+    } catch (error) {
+      this.logger.error('Failed to clear category cache', error);
+    }
   }
 }
