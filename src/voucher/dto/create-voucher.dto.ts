@@ -36,4 +36,26 @@ export class CreateVoucherDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  // Giá trị đơn hàng tối thiểu
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  minOrderValue?: number;
+
+  // Số tiền giảm tối đa
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxDiscountValue?: number;
+
+  // Loại áp dụng: ALL hoặc SPECIFIC
+  @IsOptional()
+  @IsString()
+  applyType?: 'ALL' | 'SPECIFIC';
+
+  // Danh sách ID sản phẩm áp dụng (nếu applyType là SPECIFIC)
+  @IsOptional()
+  @IsInt({ each: true })
+  productIds?: number[];
 }

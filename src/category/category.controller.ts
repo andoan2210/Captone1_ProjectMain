@@ -7,6 +7,11 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 export class CategoryController {
   constructor(private readonly categoryService: CategoryService) {}
 
+  @Get('admin/all')
+  findAllAdmin() {
+    return this.categoryService.findAllAdmin();
+  }
+
   @Post()
   create(@Body() createCategoryDto: CreateCategoryDto) {
     return this.categoryService.create(createCategoryDto);
@@ -23,6 +28,7 @@ export class CategoryController {
     const limitNumber = limit || 5;
     return this.categoryService.getCategoryByParent(parentId, limitNumber);
   }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.categoryService.findOne(+id);

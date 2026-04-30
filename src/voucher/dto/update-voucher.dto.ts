@@ -1,41 +1,44 @@
-import {
-  IsBoolean,
-  IsDateString,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, IsBoolean, IsDateString, Max } from 'class-validator';
 
 export class UpdateVoucherDto {
-  // Mã voucher mới nếu muốn đổi
   @IsOptional()
   @IsString()
-  @MaxLength(50)
   code?: string;
 
-  // Phần trăm giảm giá mới
   @IsOptional()
   @IsInt()
   @Min(1)
   @Max(100)
   discountPercent?: number;
 
-  // Số lượng voucher mới
   @IsOptional()
   @IsInt()
   @Min(1)
   quantity?: number;
 
-  // Ngày hết hạn mới
   @IsOptional()
   @IsDateString()
   expiredDate?: string;
 
-  // Trạng thái hoạt động mới
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  minOrderValue?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  maxDiscountValue?: number;
+
+  @IsOptional()
+  @IsString()
+  applyType?: 'ALL' | 'SPECIFIC';
+
+  @IsOptional()
+  @IsInt({ each: true })
+  productIds?: number[];
 }

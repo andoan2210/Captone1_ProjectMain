@@ -21,8 +21,17 @@ export class VoucherService {
   // Tạo voucher mới cho store của shop owner đang đăng nhập
   async create(userId: number, createVoucherDto: CreateVoucherDto) {
     try {
-      const { code, discountPercent, quantity, expiredDate, isActive } =
-        createVoucherDto;
+      const {
+        code,
+        discountPercent,
+        quantity,
+        expiredDate,
+        isActive,
+        minOrderValue,
+        maxDiscountValue,
+        applyType,
+        productIds,
+      } = createVoucherDto;
 
       // Chuẩn hóa code voucher
       const normalizedCode = code.trim().toUpperCase();
@@ -73,25 +82,49 @@ export class VoucherService {
         throw new BadRequestException('Voucher code already exists');
       }
 
-      // Tạo voucher mới
-      const createdVoucher = await this.prisma.vouchers.create({
-        data: {
-          StoreId: store.StoreId,
-          Code: normalizedCode,
-          DiscountPercent: discountPercent,
-          Quantity: quantity,
-          ExpiredDate: parsedExpiredDate,
-          IsActive: isActive ?? true,
-        },
-        select: {
-          VoucherId: true,
-          StoreId: true,
-          Code: true,
-          DiscountPercent: true,
-          Quantity: true,
-          ExpiredDate: true,
-          IsActive: true,
-        },
+      // Sử dụng transaction để tạo Voucher và các Product liên quan
+      const createdVoucher = await this.prisma.$transaction(async (tx) => {
+        // 1. Tạo voucher chính
+        const voucher = await tx.vouchers.create({
+          data: {
+            StoreId: store.StoreId,
+            Code: normalizedCode,
+            DiscountPercent: discountPercent,
+            Quantity: quantity,
+            ExpiredDate: parsedExpiredDate,
+            IsActive: isActive ?? true,
+            MinOrderValue: minOrderValue ?? 0,
+            MaxDiscountValue: maxDiscountValue,
+            ApplyType: applyType ?? 'ALL',
+          },
+        });
+
+        // 2. Nếu là SPECIFIC và có danh sách SP, tạo liên kết
+        if (applyType === 'SPECIFIC' && productIds && productIds.length > 0) {
+          // Kiểm tra xem các sản phẩm này có thuộc Store của user không
+          const validProducts = await tx.products.findMany({
+            where: {
+              StoreId: store.StoreId,
+              ProductId: { in: productIds },
+            },
+            select: { ProductId: true },
+          });
+
+          if (validProducts.length !== productIds.length) {
+            throw new BadRequestException(
+              'Some products do not belong to your store or do not exist',
+            );
+          }
+
+          await tx.voucherProducts.createMany({
+            data: productIds.map((pid) => ({
+              VoucherId: voucher.VoucherId,
+              ProductId: pid,
+            })),
+          });
+        }
+
+        return voucher;
       });
 
       // Xóa cache top voucher
@@ -107,7 +140,10 @@ export class VoucherService {
           quantity: createdVoucher.Quantity,
           expiredDate: createdVoucher.ExpiredDate,
           isActive: createdVoucher.IsActive,
-          applyScope: 'ALL_PRODUCTS_IN_SHOP',
+          minOrderValue: createdVoucher.MinOrderValue,
+          maxDiscountValue: createdVoucher.MaxDiscountValue,
+          applyType: createdVoucher.ApplyType,
+          productIds: productIds || [],
         },
       };
     } catch (error) {
@@ -169,14 +205,12 @@ export class VoucherService {
   async findOne(id: number) {
     const voucher = await this.prisma.vouchers.findUnique({
       where: { VoucherId: id },
-      select: {
-        VoucherId: true,
-        StoreId: true,
-        Code: true,
-        DiscountPercent: true,
-        Quantity: true,
-        ExpiredDate: true,
-        IsActive: true,
+      include: {
+        VoucherProducts: {
+          select: {
+            ProductId: true,
+          },
+        },
       },
     });
 
@@ -193,7 +227,10 @@ export class VoucherService {
       quantity: voucher.Quantity,
       expiredDate: voucher.ExpiredDate,
       isActive: voucher.IsActive,
-      applyScope: 'ALL_PRODUCTS_IN_SHOP',
+      minOrderValue: voucher.MinOrderValue,
+      maxDiscountValue: voucher.MaxDiscountValue,
+      applyType: voucher.ApplyType,
+      productIds: voucher.VoucherProducts.map((vp) => vp.ProductId),
     };
   }
 
@@ -314,37 +351,90 @@ export class VoucherService {
         throw new BadRequestException('No data provided to update');
       }
 
-      // Update voucher trong DB
-      const updatedVoucher = await this.prisma.vouchers.update({
-        where: {
-          VoucherId: id,
-        },
-        data: dataToUpdate,
-        select: {
-          VoucherId: true,
-          StoreId: true,
-          Code: true,
-          DiscountPercent: true,
-          Quantity: true,
-          ExpiredDate: true,
-          IsActive: true,
-        },
+      // Update voucher trong DB sử dụng transaction
+      const updatedVoucher = await this.prisma.$transaction(async (tx) => {
+        const voucher = await tx.vouchers.update({
+          where: {
+            VoucherId: id,
+          },
+          data: {
+            Code: dataToUpdate.Code,
+            DiscountPercent: dataToUpdate.DiscountPercent,
+            Quantity: dataToUpdate.Quantity,
+            ExpiredDate: dataToUpdate.ExpiredDate,
+            IsActive: dataToUpdate.IsActive,
+            MinOrderValue: updateVoucherDto.minOrderValue,
+            MaxDiscountValue: updateVoucherDto.maxDiscountValue,
+            ApplyType: updateVoucherDto.applyType,
+          },
+        });
+
+        // Cập nhật danh sách sản phẩm nếu có truyền productIds
+        if (updateVoucherDto.productIds !== undefined) {
+          // Xóa hết liên kết cũ
+          await tx.voucherProducts.deleteMany({
+            where: { VoucherId: id },
+          });
+
+          // Nếu type là SPECIFIC thì mới tạo lại liên kết mới
+          if (
+            (updateVoucherDto.applyType === 'SPECIFIC' ||
+              (!updateVoucherDto.applyType && voucher.ApplyType === 'SPECIFIC')) &&
+            updateVoucherDto.productIds.length > 0
+          ) {
+            // Kiểm tra sản phẩm hợp lệ
+            const validProducts = await tx.products.findMany({
+              where: {
+                StoreId: store.StoreId,
+                ProductId: { in: updateVoucherDto.productIds },
+              },
+              select: { ProductId: true },
+            });
+
+            if (validProducts.length !== updateVoucherDto.productIds.length) {
+              throw new BadRequestException(
+                'Some products do not belong to your store or do not exist',
+              );
+            }
+
+            await tx.voucherProducts.createMany({
+              data: updateVoucherDto.productIds.map((pid) => ({
+                VoucherId: id,
+                ProductId: pid,
+              })),
+            });
+          }
+        }
+
+        return voucher;
       });
 
       // Xóa cache để đồng bộ dữ liệu mới
       await this.redis.deleteByPattern('voucher:best:*');
 
+      const finalVoucher = await this.prisma.vouchers.findUnique({
+        where: { VoucherId: id },
+        include: { VoucherProducts: { select: { ProductId: true } } },
+      });
+
+      if (!finalVoucher) {
+        throw new NotFoundException('Voucher not found after update');
+      }
+
       return {
         message: 'Voucher updated successfully',
         data: {
-          voucherId: updatedVoucher.VoucherId,
-          storeId: updatedVoucher.StoreId,
-          code: updatedVoucher.Code,
-          discountPercent: updatedVoucher.DiscountPercent,
-          quantity: updatedVoucher.Quantity,
-          expiredDate: updatedVoucher.ExpiredDate,
-          isActive: updatedVoucher.IsActive,
-          applyScope: 'ALL_PRODUCTS_IN_SHOP',
+          voucherId: finalVoucher.VoucherId,
+          storeId: finalVoucher.StoreId,
+          code: finalVoucher.Code,
+          discountPercent: finalVoucher.DiscountPercent,
+          quantity: finalVoucher.Quantity,
+          expiredDate: finalVoucher.ExpiredDate,
+          isActive: finalVoucher.IsActive,
+          minOrderValue: finalVoucher.MinOrderValue,
+          maxDiscountValue: finalVoucher.MaxDiscountValue,
+          applyType: finalVoucher.ApplyType,
+          productIds: finalVoucher.VoucherProducts.map((vp) => vp.ProductId),
         },
       };
     } catch (error) {
@@ -435,7 +525,6 @@ export class VoucherService {
           quantity: deletedVoucher.Quantity,
           expiredDate: deletedVoucher.ExpiredDate,
           isActive: deletedVoucher.IsActive,
-          applyScope: 'ALL_PRODUCTS_IN_SHOP',
         },
       };
     } catch (error) {
@@ -523,6 +612,9 @@ async getMyVouchers(userId: number, query: GetMyVouchersDto) {
         Quantity: true,
         ExpiredDate: true,
         IsActive: true,
+        MinOrderValue: true,
+        MaxDiscountValue: true,
+        ApplyType: true,
       },
     });
 
@@ -545,7 +637,9 @@ async getMyVouchers(userId: number, query: GetMyVouchersDto) {
     quantity: voucher.Quantity,
     expiredDate: voucher.ExpiredDate,
     isActive: voucher.IsActive,
-    applyScope: 'ALL_PRODUCTS_IN_SHOP',
+    minOrderValue: voucher.MinOrderValue,
+    maxDiscountValue: voucher.MaxDiscountValue,
+    applyType: voucher.ApplyType,
     displayStatus,
   };
     });
