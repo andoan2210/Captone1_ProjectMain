@@ -509,4 +509,103 @@ async getStoreByBest(limit: number) {
       throw error;
     }
   }
+
+  // Admin lấy tất cả cửa hàng (active + inactive)
+  async getAllStoresForAdmin() {
+    try {
+      const stores = await this.prisma.stores.findMany({
+        where: {
+          IsDeleted: false,
+        },
+        select: {
+          StoreId: true,
+          OwnerId: true,
+          StoreName: true,
+          Description: true,
+          LogoUrl: true,
+          IsActive: true,
+          CreatedAt: true,
+          Users: {
+            select: {
+              UserId: true,
+              FullName: true,
+              Email: true,
+              Phone: true,
+              AvatarUrl: true,
+            },
+          },
+          _count: {
+            select: {
+              Products: {
+                where: { IsDeleted: false },
+              },
+              Orders: true,
+              Vouchers: {
+                where: { IsActive: true },
+              },
+            },
+          },
+        },
+        orderBy: {
+          CreatedAt: 'desc',
+        },
+      });
+
+      return {
+        message: 'Get all stores successfully',
+        data: stores.map((store) => ({
+          storeId: store.StoreId,
+          ownerId: store.OwnerId,
+          storeName: store.StoreName,
+          description: store.Description,
+          logoUrl: store.LogoUrl,
+          isActive: store.IsActive,
+          createdAt: store.CreatedAt,
+          totalProducts: store._count?.Products || 0,
+          totalOrders: store._count?.Orders || 0,
+          totalVouchers: store._count?.Vouchers || 0,
+          owner: {
+            userId: store.Users.UserId,
+            fullName: store.Users.FullName,
+            email: store.Users.Email,
+            phone: store.Users.Phone,
+            avatarUrl: store.Users.AvatarUrl,
+          },
+        })),
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
+  // Admin toggle trạng thái cửa hàng (Active <-> Inactive)
+  async toggleStoreStatus(storeId: number) {
+    try {
+      const store = await this.prisma.stores.findFirst({
+        where: { StoreId: storeId, IsDeleted: false },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      const newStatus = !store.IsActive;
+
+      await this.prisma.stores.update({
+        where: { StoreId: storeId },
+        data: { IsActive: newStatus },
+      });
+
+      this.logger.log(`Admin toggled store status: storeId=${storeId}, isActive=${newStatus}`);
+
+      return {
+        message: newStatus ? 'Store activated successfully' : 'Store deactivated successfully',
+        isActive: newStatus,
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
 }

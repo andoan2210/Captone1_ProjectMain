@@ -339,6 +339,14 @@ export class OrderService {
           },
           Payments: true,
           Invoices: true,
+          Stores: {
+            select: {
+              StoreId: true,
+              StoreName: true,
+              LogoUrl: true,
+              OwnerId: true,
+            },
+          },
         },
         
       });
@@ -403,6 +411,15 @@ export class OrderService {
         ? {
             invoiceId: order.Invoices.InvoiceId,
             invoiceNumber: order.Invoices.InvoiceNumber,
+          }
+        : null,
+
+      store: order.Stores
+        ? {
+            storeId: order.Stores.StoreId,
+            storeName: order.Stores.StoreName,
+            logo: order.Stores.LogoUrl,
+            ownerId: order.Stores.OwnerId,
           }
         : null,
     };
@@ -836,8 +853,10 @@ export class OrderService {
           },
           Stores: {
             select: {
+              StoreId: true,
               StoreName: true,
               LogoUrl: true,
+              OwnerId: true,
             },
           },
         },
@@ -866,8 +885,10 @@ export class OrderService {
           createdAt: order.CreatedAt,
           store: order.Stores
             ? {
+                storeId: order.Stores.StoreId,
                 storeName: order.Stores.StoreName,
                 logo: order.Stores.LogoUrl,
+                ownerId: order.Stores.OwnerId,
               }
             : null,
           items,
@@ -899,8 +920,19 @@ export class OrderService {
     }
   }
 
-  findAll() {
-    return `This action returns all order`;
+  async findAll() {
+    try {
+      const orders = await this.prisma.orders.findMany({
+        orderBy: { CreatedAt: 'desc' }
+      });
+      return {
+        message: 'Get all orders successfully',
+        data: orders,
+      };
+    } catch (error) {
+      this.logger.error(`[FindAll Error] ${error.message}`);
+      throw new BadRequestException('Failed to fetch all orders');
+    }
   }
 
   findOne(id: number) {
