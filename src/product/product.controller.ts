@@ -139,7 +139,35 @@ getPendingProducts(
   const pageNumber = parseInt(page || '1', 10);
   const limitNumber = parseInt(limit || '5', 10);
 
-  return this.productService.getPendingProducts(pageNumber, limitNumber);
+  return this.productService.getAdminProductsByStatus(pageNumber, limitNumber, 'PENDING');
+}
+
+// API GET /product/admin/approved
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN)
+@Get('admin/approved')
+getApprovedProducts(
+  @Query('page') page?: string,
+  @Query('limit') limit?: string,
+) {
+  const pageNumber = parseInt(page || '1', 10);
+  const limitNumber = parseInt(limit || '5', 10);
+
+  return this.productService.getAdminProductsByStatus(pageNumber, limitNumber, 'APPROVED');
+}
+
+// API GET /product/admin/rejected
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN)
+@Get('admin/rejected')
+getRejectedProducts(
+  @Query('page') page?: string,
+  @Query('limit') limit?: string,
+) {
+  const pageNumber = parseInt(page || '1', 10);
+  const limitNumber = parseInt(limit || '5', 10);
+
+  return this.productService.getAdminProductsByStatus(pageNumber, limitNumber, 'REJECTED');
 }
 
 // API GET /product/admin/:id
@@ -177,6 +205,30 @@ rejectProduct(
     rejectProductDto.reason,
   );
 }
+
+  // API PATCH /product/admin/:id/update
+  // Dùng để admin chỉnh sửa sản phẩm của bất kỳ shop nào.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Patch('admin/:id/update')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'thumbnail', maxCount: 1 },
+      { name: 'images', maxCount: 10 },
+    ]),
+  )
+  adminUpdate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateProductDto: UpdateProductDto,
+    @UploadedFiles()
+    files: {
+      thumbnail?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+    },
+  ) {
+    return this.productService.adminUpdateProduct(id, updateProductDto, files);
+  }
+
   @Get('detail/:id')
   getDetailProduct(@Param('id') id: number) {
     return this.productService.getDetailProduct(id);

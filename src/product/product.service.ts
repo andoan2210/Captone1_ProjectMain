@@ -976,7 +976,7 @@ export class ProductService {
 // Shopowner phải tạo sản phẩm mới.
       if (existingProduct.ApprovalStatus === 'REJECTED') {
         throw new BadRequestException(
-          'Rejected product cannot be updated. Please create a new product.',
+          'Sản phẩm bị từ chối không thể cập nhật. Vui lòng tạo sản phẩm mới.',
         );
       }
 
@@ -1698,20 +1698,21 @@ export class ProductService {
 // API GET /admin/products/pending
 // Dùng để admin xem danh sách các sản phẩm đang chờ duyệt.
 // Chỉ lấy các sản phẩm có ApprovalStatus = PENDING.
-async getPendingProducts(page: number, limit: number) {
+async getAdminProductsByStatus(page: number, limit: number, status: 'PENDING' | 'APPROVED' | 'REJECTED') {
   try {
     const skip = (page - 1) * limit;
 
     const [products, total] = await Promise.all([
       this.prisma.products.findMany({
         where: {
-          ApprovalStatus: 'PENDING',
+          ApprovalStatus: status,
           IsDeleted: false,
         },
         skip,
         take: limit,
         orderBy: {
-          CreatedAt: 'desc',
+          CreatedAt: status === 'PENDING' ? 'desc' : undefined,
+          UpdatedAt: status !== 'PENDING' ? 'desc' : undefined,
         },
         select: {
           ProductId: true,
@@ -1719,7 +1720,9 @@ async getPendingProducts(page: number, limit: number) {
           Price: true,
           ThumbnailUrl: true,
           ApprovalStatus: true,
+          IsActive: true,
           CreatedAt: true,
+          UpdatedAt: true,
           Stores: {
             select: {
               StoreId: true,
@@ -1736,21 +1739,23 @@ async getPendingProducts(page: number, limit: number) {
       }),
       this.prisma.products.count({
         where: {
-          ApprovalStatus: 'PENDING',
+          ApprovalStatus: status,
           IsDeleted: false,
         },
       }),
     ]);
 
     return {
-      message: 'Get pending products successfully',
+      message: `Get ${status.toLowerCase()} products successfully`,
       data: products.map((product) => ({
         productId: product.ProductId,
         productName: product.ProductName,
         price: Number(product.Price),
         thumbnailUrl: product.ThumbnailUrl,
         approvalStatus: product.ApprovalStatus,
+        isActive: product.IsActive,
         createdAt: product.CreatedAt,
+        updatedAt: product.UpdatedAt,
         store: product.Stores
           ? {
               storeId: product.Stores.StoreId,
@@ -1893,8 +1898,7 @@ async getAdminProductDetail(productId: number) {
 }
 
 // API PATCH /product/admin/:id/approve
-// Dùng để admin duyệt sản phẩm đang chờ duyệt.
-// Chỉ cho phép approve khi sản phẩm đang ở trạng thái PENDING.
+// Dùng để admin duyệt sản phẩm đang chờ duyệt HOẶC gỡ ban (từ REJECTED sang APPROVED).
 async approveProduct(adminUserId: number, productId: number) {
   try {
     const existingProduct = await this.prisma.products.findFirst({
@@ -1914,10 +1918,9 @@ async approveProduct(adminUserId: number, productId: number) {
       throw new NotFoundException('Product not found');
     }
 
-    if (existingProduct.ApprovalStatus !== 'PENDING') {
-      throw new BadRequestException(
-        'Only pending products can be approved',
-      );
+    // Cho phép duyệt nếu đang PENDING hoặc REJECTED (Unban)
+    if (existingProduct.ApprovalStatus === 'APPROVED') {
+      throw new BadRequestException('Product is already approved');
     }
 
     const approvedProduct = await this.prisma.products.update({
@@ -1926,6 +1929,7 @@ async approveProduct(adminUserId: number, productId: number) {
       },
       data: {
         ApprovalStatus: 'APPROVED',
+        IsActive: true, // Luôn active khi đã duyệt/gỡ ban
         RejectReason: null,
         ReviewedBy: adminUserId,
         ReviewedAt: new Date(),
@@ -1943,13 +1947,14 @@ async approveProduct(adminUserId: number, productId: number) {
     });
 
     this.logger.log(
-      `Approve product successfully: productId=${approvedProduct.ProductId}, adminUserId=${adminUserId}`,
+      `Approve/Unban product successfully: productId=${approvedProduct.ProductId}, adminUserId=${adminUserId}`,
     );
 
     await this.redis.deleteByPattern(`product:category:*`);
     await this.redis.deleteByPattern(`product:new:*`);
     await this.redis.deleteByPattern(`product:best-seller:*`);
     await this.redis.deleteByPattern(`product:shop:${approvedProduct.StoreId}:*`);
+    await this.redis.del('global:product_search_cache');
 
     return {
       message: 'Approve product successfully',
@@ -1972,8 +1977,7 @@ async approveProduct(adminUserId: number, productId: number) {
 
 
 // API PATCH /product/admin/:id/reject
-// Dùng để admin từ chối sản phẩm đang chờ duyệt và lưu lý do từ chối.
-// Chỉ cho phép reject khi sản phẩm đang ở trạng thái PENDING.
+// Dùng để admin từ chối sản phẩm đang chờ duyệt HOẶC ban sản phẩm đang active.
 async rejectProduct(
   adminUserId: number,
   productId: number,
@@ -1997,10 +2001,8 @@ async rejectProduct(
       throw new NotFoundException('Product not found');
     }
 
-    if (existingProduct.ApprovalStatus !== 'PENDING') {
-      throw new BadRequestException(
-        'Only pending products can be rejected',
-      );
+    if (existingProduct.ApprovalStatus === 'REJECTED') {
+      throw new BadRequestException('Product is already rejected/banned');
     }
 
     const rejectedProduct = await this.prisma.products.update({
@@ -2009,6 +2011,7 @@ async rejectProduct(
       },
       data: {
         ApprovalStatus: 'REJECTED',
+        IsActive: false, // Luôn ẩn khi bị reject/ban
         RejectReason: reason.trim(),
         ReviewedBy: adminUserId,
         ReviewedAt: new Date(),
@@ -2026,13 +2029,14 @@ async rejectProduct(
     });
 
     this.logger.log(
-      `Reject product successfully: productId=${rejectedProduct.ProductId}, adminUserId=${adminUserId}`,
+      `Reject/Ban product successfully: productId=${rejectedProduct.ProductId}, adminUserId=${adminUserId}`,
     );
 
     await this.redis.deleteByPattern(`product:category:*`);
     await this.redis.deleteByPattern(`product:new:*`);
     await this.redis.deleteByPattern(`product:best-seller:*`);
     await this.redis.deleteByPattern(`product:shop:${rejectedProduct.StoreId}:*`);
+    await this.redis.del('global:product_search_cache');
 
     return {
       message: 'Reject product successfully',
@@ -2078,4 +2082,178 @@ async rejectProduct(
     return this.getDetailProduct(id);
   }
 
+  async adminUpdateProduct(
+    id: number,
+    updateProductDto: UpdateProductDto,
+    files: {
+      thumbnail?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+    },
+  ) {
+    const uploadedFileUrls: string[] = [];
+    const oldFileUrlsToDeleteAfterSuccess: string[] = [];
+
+    try {
+      if (!this.hasAnyUpdateData(updateProductDto, files)) {
+        throw new BadRequestException('No data provided to update');
+      }
+
+      const existingProduct = await this.prisma.products.findFirst({
+        where: {
+          ProductId: id,
+          IsDeleted: false,
+        },
+        include: {
+          ProductImages: true,
+          ProductVariants: true,
+        },
+      });
+
+      if (!existingProduct) {
+        throw new NotFoundException('Product not found');
+      }
+
+      const categoryId = updateProductDto.categoryId ? Number(updateProductDto.categoryId) : undefined;
+      if (categoryId) {
+        const category = await this.prisma.categories.findFirst({
+          where: { CategoryId: categoryId, IsActive: true },
+        });
+        if (!category) throw new NotFoundException('Category not found');
+      }
+
+      const newThumbnailFile = files?.thumbnail?.[0];
+      const newThumbnailUrl = newThumbnailFile
+        ? await this.uploadService.uploadImage(newThumbnailFile, 'products/thumbnail')
+        : undefined;
+
+      if (newThumbnailUrl) uploadedFileUrls.push(newThumbnailUrl);
+
+      const newImageFiles = files?.images ?? [];
+      const newImageUrls = newImageFiles.length > 0
+        ? await this.uploadService.uploadMultipleImages(newImageFiles, 'products/images')
+        : [];
+
+      uploadedFileUrls.push(...newImageUrls);
+
+      const removeImageIds = this.parseImageIds(updateProductDto.removeImageIds);
+      const removableImages = existingProduct.ProductImages.filter((img) =>
+        removeImageIds.includes(img.ImageId),
+      );
+
+      const parsedVariants = updateProductDto.variants
+        ? this.parseVariants(updateProductDto.variants)
+        : undefined;
+
+      const updatedProduct = await this.prisma.$transaction(async (tx) => {
+        const product = await tx.products.update({
+          where: { ProductId: id },
+          data: {
+            ProductName: updateProductDto.productName?.trim(),
+            CategoryId: categoryId,
+            Description: updateProductDto.description?.trim(),
+            ThumbnailUrl: newThumbnailUrl,
+            IsActive: updateProductDto.isActive !== undefined ? (typeof updateProductDto.isActive === 'boolean' ? updateProductDto.isActive : updateProductDto.isActive === 'true') : undefined,
+          },
+        });
+
+        if (parsedVariants) {
+          const existingVariants = await tx.productVariants.findMany({
+            where: { ProductId: id },
+          });
+
+          const handledVariantIds = new Set<number>();
+
+          for (const variant of parsedVariants) {
+            let existing = variant.variantId
+              ? existingVariants.find((v) => v.VariantId === variant.variantId)
+              : null;
+
+            if (!existing) {
+              existing = existingVariants.find(
+                (v) =>
+                  v.Size.toLowerCase() === variant.size.toLowerCase() &&
+                  (v.Color?.toLowerCase() ?? null) ===
+                    (variant.color?.toLowerCase() ?? null),
+              );
+            }
+
+            if (existing) {
+              handledVariantIds.add(existing.VariantId);
+              await tx.productVariants.update({
+                where: { VariantId: existing.VariantId },
+                data: {
+                  Size: variant.size,
+                  Color: variant.color,
+                  Stock: variant.stock,
+                  Price: variant.price,
+                },
+              });
+            } else {
+              await tx.productVariants.create({
+                data: {
+                  ProductId: id,
+                  Size: variant.size,
+                  Color: variant.color,
+                  Stock: variant.stock,
+                  Price: variant.price,
+                },
+              });
+            }
+          }
+
+          const variantsToDelete = existingVariants.filter(
+            (v) => !handledVariantIds.has(v.VariantId),
+          );
+
+          for (const vToDelete of variantsToDelete) {
+            try {
+              await tx.productVariants.delete({ where: { VariantId: vToDelete.VariantId } });
+            } catch (error) {
+              await tx.productVariants.update({
+                where: { VariantId: vToDelete.VariantId },
+                data: { Stock: 0 },
+              });
+            }
+          }
+        }
+
+        if (removeImageIds.length > 0) {
+          await tx.productImages.deleteMany({
+            where: { ProductId: id, ImageId: { in: removeImageIds } },
+          });
+        }
+
+        if (newImageUrls.length > 0) {
+          await tx.productImages.createMany({
+            data: newImageUrls.map((url) => ({ ProductId: id, ImageUrl: url })),
+          });
+        }
+
+        return tx.products.findUnique({
+          where: { ProductId: id },
+          include: { ProductImages: true, ProductVariants: true },
+        });
+      });
+
+      if (newThumbnailUrl && existingProduct.ThumbnailUrl) oldFileUrlsToDeleteAfterSuccess.push(existingProduct.ThumbnailUrl);
+      if (removableImages.length > 0) oldFileUrlsToDeleteAfterSuccess.push(...removableImages.map((image) => image.ImageUrl));
+
+      for (const fileUrl of oldFileUrlsToDeleteAfterSuccess) {
+        try { await this.uploadService.deleteFile(fileUrl); } catch (e) { this.logger.error(e); }
+      }
+
+      await this.redis.deleteByPattern(`product:category:*`);
+      await this.redis.del('global:product_search_cache');
+
+      return { message: 'Admin update product successfully', data: updatedProduct };
+    } catch (error) {
+      this.logger.error(error);
+      if (uploadedFileUrls.length > 0) {
+        for (const fileUrl of uploadedFileUrls) {
+          try { await this.uploadService.deleteFile(fileUrl); } catch (e) { this.logger.error(e); }
+        }
+      }
+      throw error;
+    }
+  }
 }
