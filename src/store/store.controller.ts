@@ -84,6 +84,20 @@ export class StoreController {
     return this.storeService.rejectStore(id);
   }
 
+  @Get('admin/all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  getAllStoresForAdmin() {
+    return this.storeService.getAllStoresForAdmin();
+  }
+
+  @Patch('admin/:id/toggle-status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  toggleStoreStatus(@Param('id', ParseIntPipe) id: number) {
+    return this.storeService.toggleStoreStatus(id);
+  }
+
   @Get()
   findAll() {
     return this.storeService.findAll();

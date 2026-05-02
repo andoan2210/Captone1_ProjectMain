@@ -878,8 +878,16 @@ export class ProductService {
     }
   }
 
-  findAll() {
-    return `This action returns all product`;
+  async findAll() {
+    try {
+      const products = await this.prisma.products.findMany({
+        orderBy: { CreatedAt: 'desc' }
+      });
+      return products;
+    } catch (error) {
+      this.logger.error(`[FindAll Products Error] ${error.message}`);
+      throw new BadRequestException('Failed to fetch all products');
+    }
   }
 
   findOne(id: number) {
