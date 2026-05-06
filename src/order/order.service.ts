@@ -156,6 +156,7 @@ export class OrderService {
               PaymentStatus: 'Unpaid',
               ShippingAddress: shippingAddressString,
               AddressId: address.AddressId,
+              CreatedAt: new Date(),
             },
           });
 
@@ -253,6 +254,9 @@ export class OrderService {
     const orders = await this.prisma.orders.findMany({
       where: {
         StoreId: store.Stores?.StoreId,
+      },
+      orderBy: {
+        CreatedAt: 'desc',
       },
       select :{
         OrderId : true,
@@ -368,6 +372,7 @@ export class OrderService {
         const product = i.ProductVariants.Products;
           return {
             productName: product.ProductName,
+            productImage: product.ThumbnailUrl,
             variant: `${i.ProductVariants.Size} - ${i.ProductVariants.Color}`,
             quantity: i.Quantity,
             price: i.UnitPrice,
@@ -563,6 +568,7 @@ export class OrderService {
 
       const items = order.OrderItems.map(i => ({
         productName: i.ProductVariants.Products.ProductName,
+        productImage: i.ProductVariants.Products.ThumbnailUrl,
         variant: `${i.ProductVariants.Size} - ${i.ProductVariants.Color}`,
         quantity: i.Quantity,
         unitPrice: i.UnitPrice,
