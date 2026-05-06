@@ -95,6 +95,7 @@ export class PaymentService {
             BillingAddress: order?.ShippingAddress || 'Unknown',
             BillingPhone: order?.Users?.Phone || 'Unknown',
             InvoiceNumber: `INV-${orderId}-${Date.now()}`,
+            IssueDate: new Date(),
           },
         });
 
