@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, Res, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, Res, Req, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {Response} from 'express';
 import { LocalAuthGuard } from './passport/local-auth.guard';
@@ -21,7 +21,7 @@ export class AuthController {
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: false, // production = true
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -32,12 +32,25 @@ export class AuthController {
   @Post('refresh')
   async refreshToken(@Req() req, @Res({ passthrough: true }) res: Response) {
 
-  const refreshToken = req.cookies.refreshToken;
+    const refreshToken = req.cookies.refreshToken;
+    
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token cookie');
+    }
 
-  const result = await this.authService.refreshToken(refreshToken);
+    const result = await this.authService.refreshToken(refreshToken);
 
-  return result;
-}
+    res.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: false, // production = true
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return {
+      accessToken: result.accessToken,
+    };
+  }
   
   @Post('logout')
   logout(@Res({ passthrough: true }) res: Response) {
@@ -70,10 +83,11 @@ export class AuthController {
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: false, // production = true
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     return res.redirect(`http://localhost:5173/auth/google/callback?token=${tokens.accessToken}`);
   }
 }
+// Trigger restart
