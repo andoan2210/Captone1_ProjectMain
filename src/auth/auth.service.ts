@@ -87,7 +87,7 @@ export class AuthService {
 
   async refreshToken(
     refreshToken: string,
-  ): Promise<{ accessToken: string }> {
+  ): Promise<{ accessToken: string; refreshToken: string }> {
   try {
     const payload = await this.jwtService.verifyAsync<TokenPayload>(
       refreshToken,
@@ -108,10 +108,14 @@ export class AuthService {
       role: user.Role,
     };
 
-    const accessToken = await this.generateAccessToken(newPayload);
+    const [accessToken, newRefreshToken] = await Promise.all([
+      this.generateAccessToken(newPayload),
+      this.generateRefreshToken(newPayload),
+    ]);
 
     return {
       accessToken,
+      refreshToken: newRefreshToken,
     };
   } catch (error) {
     throw new UnauthorizedException('Invalid refresh token');

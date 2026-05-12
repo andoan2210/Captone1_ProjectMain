@@ -151,7 +151,7 @@ export class CategoryService {
     try {
       const category = await this.prisma.categories.update({
         where: { CategoryId: id },
-        data: updateCategoryDto,
+        data: { ...updateCategoryDto, IsActive: true },
       });
       await this.clearCategoryCache();
       return category;

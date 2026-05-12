@@ -2256,4 +2256,65 @@ async rejectProduct(
       throw error;
     }
   }
+
+  async getBestSellingProductsForShop(ownerUserId: number, limit: number = 5) {
+    try {
+      // Tìm cửa hàng của người dùng hiện tại
+      const store = await this.prisma.stores.findFirst({
+        where: { OwnerId: ownerUserId, IsDeleted: false },
+        select: { StoreId: true },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      const topProducts = await this.prisma.$queryRaw<
+        {
+          ProductId: number;
+          ProductName: string;
+          ThumbnailUrl: string;
+          Sold: number;
+          Revenue: number;
+        }[]
+      >`
+        SELECT TOP (${limit})
+          p.ProductId,
+          p.ProductName,
+          p.ThumbnailUrl,
+          ISNULL(SUM(oi.Quantity), 0) as Sold, -- Tính tổng số lượng bán
+          ISNULL(SUM(oi.Quantity * oi.UnitPrice), 0) as Revenue -- Tính tổng doanh thu
+        FROM Products p
+        JOIN ProductVariants pv ON p.ProductId = pv.ProductId
+        JOIN OrderItems oi ON pv.VariantId = oi.VariantId
+        JOIN Orders o ON oi.OrderId = o.OrderId
+        WHERE p.StoreId = ${store.StoreId}
+          AND p.IsDeleted = 0
+          -- Lọc các đơn hàng thành công hoặc đã thanh toán
+          AND (
+            o.OrderStatus IN ('Completed', 'Delivered', 'Hoàn thành', 'Đã giao')
+            OR o.PaymentStatus IN ('Paid', 'Đã thanh toán')
+          )
+        GROUP BY 
+          p.ProductId, 
+          p.ProductName, 
+          p.ThumbnailUrl
+        ORDER BY Revenue DESC, Sold DESC -- Ưu tiên doanh thu cao nhất
+      `;
+
+      return {
+        message: 'Get top selling products successfully',
+        data: topProducts.map(p => ({
+          productId: p.ProductId,
+          productName: p.ProductName,
+          thumbnailUrl: p.ThumbnailUrl,
+          sold: Number(p.Sold),
+          revenue: Number(p.Revenue),
+        })),
+      };
+    } catch (error) {
+      this.logger.error(`[getBestSellingProductsForShop Error] ${error.message}`);
+      throw error;
+    }
+  }
 }

@@ -201,6 +201,84 @@ export class VoucherService {
     }
   }
 
+  // Lấy danh sách voucher đang hoạt động của 1 store (public, cho khách hàng)
+  async getVouchersByStore(storeId: number) {
+    try {
+      const store = await this.prisma.stores.findFirst({
+        where: {
+          StoreId: storeId,
+          IsDeleted: false,
+          IsActive: true,
+        },
+        select: {
+          StoreId: true,
+          StoreName: true,
+        },
+      });
+
+      if (!store) {
+        throw new NotFoundException('Store not found');
+      }
+
+      const now = new Date();
+
+      const vouchers = await this.prisma.vouchers.findMany({
+        where: {
+          StoreId: storeId,
+          IsActive: true,
+          Quantity: { gt: 0 },
+          ExpiredDate: { gt: now },
+        },
+        orderBy: [{ DiscountPercent: 'desc' }, { ExpiredDate: 'asc' }],
+        select: {
+          VoucherId: true,
+          Code: true,
+          DiscountPercent: true,
+          Quantity: true,
+          ExpiredDate: true,
+          MinOrderValue: true,
+          MaxDiscountValue: true,
+          ApplyType: true,
+          VoucherProducts: {
+            select: {
+              Products: {
+                select: {
+                  ProductId: true,
+                  ProductName: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      return {
+        storeId: store.StoreId,
+        storeName: store.StoreName,
+        vouchers: vouchers.map((v) => ({
+          voucherId: v.VoucherId,
+          code: v.Code,
+          discountPercent: v.DiscountPercent,
+          quantity: v.Quantity,
+          expiredDate: v.ExpiredDate,
+          minOrderValue: v.MinOrderValue,
+          maxDiscountValue: v.MaxDiscountValue,
+          applyType: v.ApplyType,
+          applicableProducts:
+            v.ApplyType === 'SPECIFIC'
+              ? (v as any).VoucherProducts.map((vp) => ({
+                  productId: vp.Products.ProductId,
+                  productName: vp.Products.ProductName,
+                }))
+              : [],
+        })),
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw error;
+    }
+  }
+
   // Lấy chi tiết 1 voucher theo id
   async findOne(id: number) {
     const voucher = await this.prisma.vouchers.findUnique({

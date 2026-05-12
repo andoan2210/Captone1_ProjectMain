@@ -80,6 +80,15 @@ export class ProductController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SHOP_OWNER)
+  @Get('my-best-sellers')
+  getMyBestSellers(@Req() req, @Query('limit') limit?: string) {
+    // API lấy danh sách sản phẩm bán chạy nhất của shop hiện tại
+    const limitNumber = parseInt(limit || '5', 10);
+    return this.productService.getBestSellingProductsForShop(req.user.userId, limitNumber);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SHOP_OWNER)
   @Get('my-product/:id')
   getMyProductDetail(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.productService.getMyProductDetail(req.user.userId, id);
