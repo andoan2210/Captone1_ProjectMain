@@ -5,9 +5,10 @@ import { ChatGateway } from './chat-gateway';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthModule } from 'src/auth/auth.module';
+import { UploadModule } from 'src/upload/upload.module';
 
 @Module({
-  imports :[AuthModule],
+  imports :[AuthModule, UploadModule],
   controllers: [ChatController],
   providers: [ChatService,ChatGateway],
   
