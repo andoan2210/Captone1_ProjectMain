@@ -75,7 +75,19 @@ export class ProductService {
           CreatedAt: true,
           Categories: { select: { CategoryId: true, CategoryName: true } },
           ProductVariants: {
-            select: { OrderItems: { select: { Quantity: true } } },
+            select: {
+              OrderItems: {
+                where: {
+                  Orders: {
+                    OR: [
+                      { OrderStatus: { in: ['Completed', 'Delivered', 'Hoàn thành', 'Đã giao'] } },
+                      { PaymentStatus: { in: ['Paid', 'Đã thanh toán'] } },
+                    ]
+                  }
+                },
+                select: { Quantity: true }
+              }
+            },
           },
         },
       });
@@ -106,7 +118,7 @@ export class ProductService {
           description: p.Description,
           categoryId: p.Categories?.CategoryId,
           categoryName: p.Categories?.CategoryName,
-          createdAt: new Date(p.CreatedAt || Date.now()).getTime(),
+          createdAt: p.CreatedAt ? p.CreatedAt.getTime() : Date.now(),
           sold,
           metaTags: finalMetaTags     
         };
@@ -448,6 +460,8 @@ export class ProductService {
             RejectReason: null,
             ReviewedBy: null,
             ReviewedAt: null,
+            CreatedAt: new Date(),
+            UpdatedAt: new Date(),
           },
           select: {
             ProductId: true,
@@ -522,8 +536,13 @@ export class ProductService {
         `Create product successfully: productId=${createdProduct.ProductId}, storeId=${createdProduct.StoreId}`,
       );
 
-      await this.redis.deleteByPattern(`product:category:${createdProduct.CategoryId}:*`);
-      await this.redis.del('global:product_search_cache');
+      // Clear Cache (Non-critical, wrap in try-catch)
+      try {
+        await this.redis.deleteByPattern(`product:category:${createdProduct.CategoryId}:*`);
+        await this.redis.del('global:product_search_cache');
+      } catch (redisError) {
+        this.logger.error(`[Redis Cache Error] ${redisError.message}`);
+      }
 
       return {
         message: 'Create product successfully',
@@ -612,7 +631,7 @@ export class ProductService {
       ProductName: p.ProductName,
       Price: p.Price,
       ThumbnailUrl: p.ThumbnailUrl,
-      CreatedAt: p.CreatedAt,
+      createdAt: p.CreatedAt ? p.CreatedAt.getTime() : null,
       CategoryName: p.Categories?.CategoryName ?? null,
     }));
 
@@ -659,6 +678,14 @@ export class ProductService {
         ProductVariants: {
           select: {
             OrderItems: {
+              where: {
+                Orders: {
+                  OR: [
+                    { OrderStatus: { in: ['Completed', 'Delivered', 'Hoàn thành', 'Đã giao'] } },
+                    { PaymentStatus: { in: ['Paid', 'Đã thanh toán'] } },
+                  ]
+                }
+              },
               select: {
                 Quantity: true,
               },
@@ -856,9 +883,9 @@ export class ProductService {
           // Approval flow: trả trạng thái duyệt để FE hiển thị tab và badge trạng thái
           approvalStatus: product.ApprovalStatus,
           rejectReason: product.RejectReason,
-          reviewedAt: product.ReviewedAt,
-          updatedAt: product.UpdatedAt,
-          createdAt: product.CreatedAt,
+          reviewedAt: product.ReviewedAt ? product.ReviewedAt.getTime() : null,
+          updatedAt: product.UpdatedAt ? product.UpdatedAt.getTime() : null,
+          createdAt: product.CreatedAt ? product.CreatedAt.getTime() : null,
           category: product.Categories
             ? {
                 categoryId: product.Categories.CategoryId,
@@ -1052,6 +1079,7 @@ export class ProductService {
         RejectReason?: string | null;
         ReviewedBy?: number | null;
         ReviewedAt?: Date | null;
+        UpdatedAt?: Date;
       } = {};
 
       if (updateProductDto.categoryId !== undefined) {
@@ -1077,6 +1105,9 @@ export class ProductService {
       if (parsedVariants) {
         productData.Price = Math.min(...parsedVariants.map((item) => item.price));
       }
+
+      productData.UpdatedAt = new Date();
+
       // Nếu sản phẩm đang APPROVED mà bị chỉnh sửa,
       // thì phải quay lại PENDING để admin duyệt lại.
       if (existingProduct.ApprovalStatus === 'APPROVED') {
@@ -1246,20 +1277,30 @@ export class ProductService {
         );
       }
 
-      for (const fileUrl of oldFileUrlsToDeleteAfterSuccess) {
-        try {
-          await this.uploadService.deleteFile(fileUrl);
-        } catch (cleanupError) {
-          this.logger.error(cleanupError);
+      // 4. Cleanup old files from S3 (Non-critical, wrap in try-catch)
+      try {
+        for (const fileUrl of oldFileUrlsToDeleteAfterSuccess) {
+          try {
+            await this.uploadService.deleteFile(fileUrl);
+          } catch (cleanupError) {
+            this.logger.error(`[S3 Cleanup Error] ${cleanupError.message}`);
+          }
         }
+      } catch (e) {
+        this.logger.error(`[Cleanup loop error] ${e.message}`);
       }
 
       this.logger.log(
         `Update product successfully: productId=${updatedProduct.ProductId}, storeId=${updatedProduct.StoreId}`,
       );
 
-      await this.redis.deleteByPattern(`product:category:${updatedProduct.CategoryId}:*`);
-      await this.redis.del('global:product_search_cache');
+      // 5. Clear Cache (Non-critical, wrap in try-catch)
+      try {
+        await this.redis.deleteByPattern(`product:category:${updatedProduct.CategoryId}:*`);
+        await this.redis.del('global:product_search_cache');
+      } catch (redisError) {
+        this.logger.error(`[Redis Cache Error] ${redisError.message}`);
+      }
 
       return {
         message: 'Update product successfully',
@@ -1352,6 +1393,12 @@ export class ProductService {
           ProductVariants: {
             ProductId: id,
           },
+          Orders: {
+            OR: [
+              { OrderStatus: { in: ['Completed', 'Delivered', 'Hoàn thành', 'Đã giao'] } },
+              { PaymentStatus: { in: ['Paid', 'Đã thanh toán'] } },
+            ]
+          }
         },
       });
 
@@ -1410,6 +1457,9 @@ export class ProductService {
           CategoryId: true,
           IsActive: true,
           ApprovalStatus: true,
+          CreatedAt: true,
+          UpdatedAt: true,
+          ReviewedAt: true,
           Categories: {
             select: { CategoryName: true },
           },
@@ -1448,6 +1498,9 @@ export class ProductService {
         categoryName: product.Categories?.CategoryName ?? null,
         isActive: product.IsActive,
         approvalStatus: product.ApprovalStatus,
+        createdAt: product.CreatedAt ? product.CreatedAt.getTime() : null,
+        updatedAt: product.UpdatedAt ? product.UpdatedAt.getTime() : null,
+        reviewedAt: product.ReviewedAt ? product.ReviewedAt.getTime() : null,
         images: product.ProductImages.map((img) => ({
           imageId: img.ImageId,
           imageUrl: img.ImageUrl,
@@ -1638,6 +1691,14 @@ export class ProductService {
             Stock: true,
             Price: true,
             OrderItems: {
+              where: {
+                Orders: {
+                  OR: [
+                    { OrderStatus: { in: ['Completed', 'Delivered', 'Hoàn thành', 'Đã giao'] } },
+                    { PaymentStatus: { in: ['Paid', 'Đã thanh toán'] } },
+                  ]
+                }
+              },
               select: {
                 Quantity: true,
               },
@@ -1754,8 +1815,8 @@ async getAdminProductsByStatus(page: number, limit: number, status: 'PENDING' | 
         thumbnailUrl: product.ThumbnailUrl,
         approvalStatus: product.ApprovalStatus,
         isActive: product.IsActive,
-        createdAt: product.CreatedAt,
-        updatedAt: product.UpdatedAt,
+        createdAt: product.CreatedAt ? product.CreatedAt.getTime() : null,
+        updatedAt: product.UpdatedAt ? product.UpdatedAt.getTime() : null,
         store: product.Stores
           ? {
               storeId: product.Stores.StoreId,
@@ -1862,9 +1923,9 @@ async getAdminProductDetail(productId: number) {
         approvalStatus: product.ApprovalStatus,
         rejectReason: product.RejectReason,
         reviewedBy: product.ReviewedBy,
-        reviewedAt: product.ReviewedAt,
-        createdAt: product.CreatedAt,
-        updatedAt: product.UpdatedAt,
+        reviewedAt: product.ReviewedAt ? product.ReviewedAt.getTime() : null,
+        createdAt: product.CreatedAt ? product.CreatedAt.getTime() : null,
+        updatedAt: product.UpdatedAt ? product.UpdatedAt.getTime() : null,
         store: product.Stores
           ? {
               storeId: product.Stores.StoreId,
@@ -2153,6 +2214,7 @@ async rejectProduct(
             Description: updateProductDto.description?.trim(),
             ThumbnailUrl: newThumbnailUrl,
             IsActive: updateProductDto.isActive !== undefined ? (typeof updateProductDto.isActive === 'boolean' ? updateProductDto.isActive : updateProductDto.isActive === 'true') : undefined,
+            UpdatedAt: new Date(),
           },
         });
 

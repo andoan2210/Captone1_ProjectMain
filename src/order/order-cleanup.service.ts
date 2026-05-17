@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class OrderCleanupService {
   private readonly logger = new Logger(OrderCleanupService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notificationService: NotificationService,
+  ) {}
 
   // Chạy tự động mỗi 5 phút một lần
   @Cron(CronExpression.EVERY_5_MINUTES)
@@ -78,6 +82,25 @@ export class OrderCleanupService {
               data: { Quantity: { increment: 1 } },
             });
             this.logger.log(`[Order Cleanup]  Hoàn lại Voucher: +1 lượt sử dụng cho VoucherId ${orderVoucher.VoucherId}.`);
+          }
+
+          // Gửi thông báo tự động hủy đơn cho Khách hàng
+          await this.notificationService.createNotification(
+            order.UserId,
+            'Đơn hàng bị hủy do hết hạn',
+            `Đơn hàng #${order.OrderId} của bạn đã bị hệ thống tự động hủy vì quá thời hạn thanh toán (15 phút).`,
+          );
+
+          // Gửi thông báo tự động hủy đơn cho Shop Owner
+          const store = await tx.stores.findUnique({
+            where: { StoreId: order.StoreId },
+          });
+          if (store?.OwnerId) {
+            await this.notificationService.createNotification(
+              store.OwnerId,
+              'Đơn hàng bị hủy do hết hạn',
+              `Đơn hàng #${order.OrderId} đã bị hệ thống tự động hủy vì quá thời hạn thanh toán.`,
+            );
           }
           
           cancelledCount++;

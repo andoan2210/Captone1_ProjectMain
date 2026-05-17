@@ -1,13 +1,15 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Req, Request, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Req, Request, Query, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
 import { UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/passport/jwt-auth.guard';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { UploadService } from 'src/upload/upload.service';
 
 @Controller('chat')
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(private readonly chatService: ChatService, private readonly uploadService: UploadService) {}
 
   @Post()
   create(@Body() createChatDto: CreateChatDto) {
@@ -47,6 +49,13 @@ export class ChatController {
     );
   }
 
+  @Post("send-image")
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('chatimage'))
+  async conversationImage(@UploadedFile() chatimage: Express.Multer.File) {
+      const url = await this.uploadService.uploadImage(chatimage, 'chat-images');
+      return { url };
+  }
   @Get()
   findAll() {
     return this.chatService.findAll();
