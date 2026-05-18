@@ -311,7 +311,7 @@ model ProductReports {
 }
 
 model ReportEvidences {
-  EvidenceId     Int            @id(map: "PK__ReportEv__FA39D7ADEDFC19F9") @default(autoincrement())
+  EvidenceId     Int            @id(map: "PK__ReportEv__FA39D7ADD21F3935") @default(autoincrement())
   ReportId       Int
   ImageUrl       String         @db.NVarChar(500)
   ProductReports ProductReports @relation(fields: [ReportId], references: [ReportId], onDelete: Cascade, onUpdate: NoAction, map: "FK_ReportEvidences_Reports")

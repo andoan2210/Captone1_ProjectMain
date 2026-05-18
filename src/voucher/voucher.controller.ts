@@ -38,6 +38,12 @@ export class VoucherController {
     return this.voucherService.getVoucherByBest(limitNumber);
   }
 
+  // Lấy danh sách voucher đang hoạt động của 1 store (public, cho khách hàng xem)
+  @Get('store/:storeId')
+  getVouchersByStore(@Param('storeId', ParseIntPipe) storeId: number) {
+    return this.voucherService.getVouchersByStore(storeId);
+  }
+
   // Lấy chi tiết voucher theo id
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {

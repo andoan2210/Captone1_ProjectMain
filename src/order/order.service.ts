@@ -7,6 +7,7 @@ import { throwError } from 'rxjs';
 import { PreviewDto } from './dto/preview.dto';
 import { PaymentFactory } from 'src/payment/payment.factory';
 import { Logger } from '@nestjs/common';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class OrderService {
@@ -15,6 +16,7 @@ export class OrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paymentFactory: PaymentFactory,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async createOrder(userId: number, dto: CreateOrderDto) {
@@ -156,6 +158,7 @@ export class OrderService {
               PaymentStatus: 'Unpaid',
               ShippingAddress: shippingAddressString,
               AddressId: address.AddressId,
+              CreatedAt: new Date(),
             },
           });
 
@@ -223,6 +226,29 @@ export class OrderService {
         }
       }
 
+      // ── GỬI THÔNG BÁO CHO SHOP OWNER ──
+      for (const item of resultData.orders) {
+        const store = await this.prisma.stores.findUnique({
+          where: { StoreId: item.order.StoreId },
+        });
+        if (store) {
+          await this.notificationService.createNotification(
+            store.OwnerId,
+            'Đơn hàng mới',
+            `Bạn có đơn hàng mới #${item.order.OrderId}`,
+          );
+        }
+      }
+
+      // ── GỬI THÔNG BÁO CHO KHÁCH HÀNG (USER/CUSTOMER) ──
+      for (const item of resultData.orders) {
+        await this.notificationService.createNotification(
+          userId,
+          'Đặt hàng thành công',
+          `Đơn hàng #${item.order.OrderId} của bạn đã được đặt thành công.`,
+        );
+      }
+
       return { ...resultData, payUrl };
 
     } catch (error) {
@@ -253,6 +279,9 @@ export class OrderService {
     const orders = await this.prisma.orders.findMany({
       where: {
         StoreId: store.Stores?.StoreId,
+      },
+      orderBy: {
+        CreatedAt: 'desc',
       },
       select :{
         OrderId : true,
@@ -368,6 +397,7 @@ export class OrderService {
         const product = i.ProductVariants.Products;
           return {
             productName: product.ProductName,
+            productImage: product.ThumbnailUrl,
             variant: `${i.ProductVariants.Size} - ${i.ProductVariants.Color}`,
             quantity: i.Quantity,
             price: i.UnitPrice,
@@ -463,6 +493,28 @@ export class OrderService {
              },
           });
           this.logger.log(`[CancelOrder] Đã hủy đơn hàng OrderId ${orderId} (Chưa thanh toán)`);
+
+          // Gửi thông báo hủy đơn cho cả khách hàng và người bán
+          const storeData = await tx.stores.findUnique({ where: { StoreId: order.StoreId } });
+          // notify Shop Owner
+          if (storeData?.OwnerId) {
+            await this.notificationService.createNotification(
+              storeData.OwnerId,
+              'Đơn hàng bị hủy',
+              order.UserId === userId 
+                ? `Đơn hàng #${orderId} đã bị hủy bởi khách hàng.` 
+                : `Bạn đã hủy thành công đơn hàng #${orderId}.`,
+            );
+          }
+          // notify Customer
+          await this.notificationService.createNotification(
+            order.UserId,
+            'Đơn hàng bị hủy',
+            order.UserId === userId
+              ? `Đơn hàng #${orderId} của bạn đã được hủy thành công.`
+              : `Đơn hàng #${orderId} của bạn đã bị hủy bởi người bán.`,
+          );
+
           return { message: 'Cancelled (no payment)' };
         }
 
@@ -512,6 +564,28 @@ export class OrderService {
          });
 
         this.logger.log(`[CancelOrder] Đã HỦY ĐƠN & HOÀN TIỀN thành công cho OrderId ${orderId}`);
+
+        // Gửi thông báo hủy đơn cho cả khách hàng và người bán
+        const storeInfo = await tx.stores.findUnique({ where: { StoreId: order.StoreId } });
+        // notify Shop Owner
+        if (storeInfo?.OwnerId) {
+          await this.notificationService.createNotification(
+            storeInfo.OwnerId,
+            'Đơn hàng bị hủy',
+            order.UserId === userId
+              ? `Đơn hàng #${orderId} đã bị hủy và hoàn tiền bởi khách hàng.`
+              : `Bạn đã hủy và hoàn tiền thành công đơn hàng #${orderId}.`,
+          );
+        }
+        // notify Customer
+        await this.notificationService.createNotification(
+          order.UserId,
+          'Đơn hàng bị hủy',
+          order.UserId === userId
+            ? `Đơn hàng #${orderId} của bạn đã được hủy và hoàn tiền thành công.`
+            : `Đơn hàng #${orderId} của bạn đã bị hủy và hoàn tiền bởi người bán.`,
+        );
+
         return { message: 'Refund success' };
       }, {
         timeout: 20000, 
@@ -563,6 +637,7 @@ export class OrderService {
 
       const items = order.OrderItems.map(i => ({
         productName: i.ProductVariants.Products.ProductName,
+        productImage: i.ProductVariants.Products.ThumbnailUrl,
         variant: `${i.ProductVariants.Size} - ${i.ProductVariants.Color}`,
         quantity: i.Quantity,
         unitPrice: i.UnitPrice,
@@ -939,8 +1014,87 @@ export class OrderService {
     return `This action returns a #${id} order`;
   }
 
-  update(id: number, updateOrderDto: UpdateOrderDto) {
-    return `This action updates a #${id} order`;
+  async update(id: number, updateOrderDto: any) {
+    this.logger.log(`[UpdateOrder] Cập nhật đơn hàng OrderId: ${id}, DTO: ${JSON.stringify(updateOrderDto)}`);
+
+    try {
+      const order = await this.prisma.orders.findUnique({
+        where: { OrderId: id },
+        include: { Stores: true }
+      });
+
+      if (!order) {
+        throw new NotFoundException(`Không tìm thấy đơn hàng #${id}`);
+      }
+
+      let newStatus = order.OrderStatus;
+      let newPaymentStatus = order.PaymentStatus;
+      let notificationTitle = '';
+      let notificationContent = '';
+
+      if (updateOrderDto.status) {
+        const feStatus = updateOrderDto.status.toLowerCase();
+        if (feStatus === 'pending') {
+          newStatus = 'Pending';
+        } else if (feStatus === 'confirmed') {
+          newStatus = 'Confirmed';
+          notificationTitle = 'Đơn hàng đã được xác nhận';
+          notificationContent = `Đơn hàng #${id} của bạn đã được người bán xác nhận và đang được chuẩn bị.`;
+        } else if (feStatus === 'shipping' || feStatus === 'processing') {
+          newStatus = 'Shipping';
+          notificationTitle = 'Đơn hàng đang được giao';
+          notificationContent = `Đơn hàng #${id} của bạn đang trên đường giao đến bạn.`;
+        } else if (feStatus === 'completed' || feStatus === 'delivered') {
+          newStatus = 'Completed';
+          newPaymentStatus = 'Paid'; // Automatically mark payment status as Paid on Completion (e.g. COD delivery success)
+          notificationTitle = 'Đơn hàng hoàn thành';
+          notificationContent = `Đơn hàng #${id} của bạn đã được giao thành công. Cảm ơn bạn đã mua sắm!`;
+        } else if (feStatus === 'cancelled') {
+          newStatus = 'Cancelled';
+          notificationTitle = 'Đơn hàng bị hủy';
+          notificationContent = `Đơn hàng #${id} của bạn đã bị hủy bởi người bán.`;
+        }
+      }
+
+      // Update Database
+      const updatedOrder = await this.prisma.orders.update({
+        where: { OrderId: id },
+        data: {
+          OrderStatus: newStatus,
+          PaymentStatus: newPaymentStatus,
+          ...(updateOrderDto.address && { ShippingAddress: updateOrderDto.address }),
+          ...(updateOrderDto.amount && { TotalAmount: updateOrderDto.amount.toString() }),
+        },
+      });
+
+      // Send real-time notification to Customer
+      if (notificationTitle && notificationContent && order.UserId) {
+        await this.notificationService.createNotification(
+          order.UserId,
+          notificationTitle,
+          notificationContent
+        );
+      }
+
+      // If Cancelled by Shop Owner, notify both Shop Owner and Customer
+      if (newStatus === 'Cancelled') {
+        if (order.Stores?.OwnerId) {
+          await this.notificationService.createNotification(
+            order.Stores.OwnerId,
+            'Đơn hàng bị hủy',
+            `Bạn đã hủy thành công đơn hàng #${id}.`
+          );
+        }
+      }
+
+      return {
+        message: 'Cập nhật đơn hàng thành công',
+        data: updatedOrder,
+      };
+    } catch (error) {
+      this.logger.error(`[UpdateOrder Error] Lỗi khi cập nhật đơn hàng: ${error.message}`);
+      throw new BadRequestException(error.message || 'Cập nhật đơn hàng thất bại');
+    }
   }
 
   remove(id: number) {

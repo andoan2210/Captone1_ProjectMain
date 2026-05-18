@@ -5,13 +5,16 @@ import { MomoIpnDto } from './dto/momo-ipn.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { PaymentFactory } from './payment.factory';
 import { Logger } from '@nestjs/common';
+import { NotificationService } from 'src/notification/notification.service';
 
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
 
-  constructor(private prisma: PrismaService,
+  constructor(
+    private prisma: PrismaService,
     private readonly paymentFactory: PaymentFactory,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async createPayment(method: string, data) {
@@ -95,10 +98,32 @@ export class PaymentService {
             BillingAddress: order?.ShippingAddress || 'Unknown',
             BillingPhone: order?.Users?.Phone || 'Unknown',
             InvoiceNumber: `INV-${orderId}-${Date.now()}`,
+            IssueDate: new Date(),
           },
         });
 
         this.logger.log(`[handleIPN] Hoàn tất cập nhật OrderId ${orderId} → Paid. Xuất hóa đơn thành công.`);
+
+        // ── GỬI THÔNG BÁO CHO USER (THANH TOÁN THÀNH CÔNG) ──
+        if (order?.UserId) {
+          await this.notificationService.createNotification(
+            order.UserId,
+            'Thanh toán thành công',
+            `Đơn hàng #${orderId} của bạn đã được thanh toán thành công qua MoMo.`,
+          );
+        }
+
+        // ── GỬI THÔNG BÁO CHO SHOP OWNER (ĐƠN HÀNG ĐÃ THANH TOÁN) ──
+        if (order?.StoreId) {
+          const store = await tx.stores.findUnique({ where: { StoreId: order.StoreId } });
+          if (store?.OwnerId) {
+            await this.notificationService.createNotification(
+              store.OwnerId,
+              'Đơn hàng đã thanh toán',
+              `Đơn hàng #${orderId} đã được thanh toán qua MoMo.`,
+            );
+          }
+        }
       }
 
       this.logger.log(`[handleIPN] Đã xử lý xong ${orderIds.length} đơn hàng từ 1 giao dịch MoMo.`);
