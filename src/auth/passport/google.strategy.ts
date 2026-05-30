@@ -26,18 +26,27 @@ export class GoogleStrategy extends PassportStrategy(Strategy){
         profile: any,
         done: VerifyCallback
     ): Promise<any> {
-        // Here you would typically use the profile data to query your database
-        // and find or create a user. For now, we return the profile object.
-        console.log(profile);
-        const user = await this.authService.validateGoogleUser({
-            name : profile.displayName,
-            email : profile.emails[0].value,
-            avatarUrl : profile.photos[0].value,
-            providerId : profile.id,
-            role : "Client",
-            isActive : true,
-        });  
-        done(null,user);
-    
+        try {
+            console.log("Google profile:", profile);
+            const email = profile.emails && profile.emails[0] ? profile.emails[0].value : null;
+            const avatarUrl = profile.photos && profile.photos[0] ? profile.photos[0].value : null;
+            
+            if (!email) {
+                return done(new Error("No email found in Google profile"), false);
+            }
+
+            const user = await this.authService.validateGoogleUser({
+                name : profile.displayName || profile.username || 'Google User',
+                email : email,
+                avatarUrl : avatarUrl,
+                providerId : profile.id,
+                role : "Client",
+                isActive : true,
+            });  
+            done(null, user);
+        } catch (error) {
+            console.error("Error in GoogleStrategy validate:", error);
+            done(error, false);
+        }
     }
 }

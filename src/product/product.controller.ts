@@ -35,7 +35,7 @@ export class ProductController {
   @UseInterceptors(
     FileFieldsInterceptor([
       { name: 'thumbnail', maxCount: 1 },
-      { name: 'images', maxCount: 10 },
+      { name: 'images', maxCount: 100 },
     ]),
   )
   create(
@@ -100,7 +100,7 @@ export class ProductController {
   @UseInterceptors(
     FileFieldsInterceptor([
       { name: 'thumbnail', maxCount: 1 },
-      { name: 'images', maxCount: 10 },
+      { name: 'images', maxCount: 100 },
     ]),
   )
   update(
@@ -223,7 +223,7 @@ rejectProduct(
   @UseInterceptors(
     FileFieldsInterceptor([
       { name: 'thumbnail', maxCount: 1 },
-      { name: 'images', maxCount: 10 },
+      { name: 'images', maxCount: 100 },
     ]),
   )
   adminUpdate(

@@ -16,27 +16,49 @@ export class StoreService {
   ){}
   async create(userId: number, createStoreDto: CreateStoreDto) {
     try {
-      // Kiểm tra user đã có store chưa
-      const existingStore = await this.prisma.stores.findFirst({
+      // Kiểm tra user đã có store đang active hoặc đang chờ duyệt chưa
+      const existingActiveStore = await this.prisma.stores.findFirst({
         where: { OwnerId: userId, IsDeleted: false },
       });
 
-      if (existingStore) {
+      if (existingActiveStore) {
         throw new BadRequestException('Bạn đã có cửa hàng hoặc đơn đang chờ duyệt');
       }
 
-      // Tạo store mới (IsActive = false → chờ Admin duyệt)
-      const store = await this.prisma.stores.create({
-        data: {
-          OwnerId: userId,
-          StoreName: createStoreDto.storeName,
-          Description: createStoreDto.description || null,
-          IsActive: false,
-          IsDeleted: false,
-        },
+      // Kiểm tra xem có store đã bị từ chối (soft-deleted) trước đó không
+      // Vì OwnerId có constraint UNIQUE nên không thể tạo row mới
+      const deletedStore = await this.prisma.stores.findFirst({
+        where: { OwnerId: userId, IsDeleted: true },
       });
 
-      this.logger.log(`Store created for approval: storeId=${store.StoreId}, userId=${userId}`);
+      let store;
+
+      if (deletedStore) {
+        // Khôi phục store đã bị từ chối với thông tin mới
+        store = await this.prisma.stores.update({
+          where: { StoreId: deletedStore.StoreId },
+          data: {
+            StoreName: createStoreDto.storeName,
+            Description: createStoreDto.description || null,
+            IsActive: false,
+            IsDeleted: false,
+            LogoUrl: null,
+          },
+        });
+        this.logger.log(`Store re-submitted for approval: storeId=${store.StoreId}, userId=${userId}`);
+      } else {
+        // Tạo store mới (IsActive = false → chờ Admin duyệt)
+        store = await this.prisma.stores.create({
+          data: {
+            OwnerId: userId,
+            StoreName: createStoreDto.storeName,
+            Description: createStoreDto.description || null,
+            IsActive: false,
+            IsDeleted: false,
+          },
+        });
+        this.logger.log(`Store created for approval: storeId=${store.StoreId}, userId=${userId}`);
+      }
 
       return {
         message: 'Đơn đăng ký đã được gửi, vui lòng chờ Admin duyệt',
