@@ -105,12 +105,7 @@ export class UsersService {
       });
 
       this.logger.log('Creating new user', { data: createDto });
-      return {
-        id: user.UserId,
-        email: user.Email,
-        role: user.Role,
-        message: 'User created successfully.',
-      };
+      return user;
     } catch (error) {
       this.logger.error('Failed to create user', { error });
       throw new BadRequestException('Failed to create user: ' + error.message);

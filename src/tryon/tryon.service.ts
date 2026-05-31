@@ -18,7 +18,7 @@ export class TryonService {
     userId: string,
     file: Express.Multer.File,
     productId : number,
-
+    thumbnailUrl?: string,
   ) {
     try {
       const user = await this.prisma.users.findUnique({
@@ -45,7 +45,7 @@ export class TryonService {
           model_name: 'tryon-v1.6',
           inputs: {
             model_image: modelUrl,
-            garment_image: product.ThumbnailUrl ? product.ThumbnailUrl : '',
+            garment_image: thumbnailUrl || product.ThumbnailUrl || '',
           },
         });
 

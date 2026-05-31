@@ -17,8 +17,9 @@ export class TryonController {
     @Request() req,
     @UploadedFile() file: Express.Multer.File,
     @Body('productId') productId: number,
+    @Body('thumbnailUrl') thumbnailUrl?: string,
   ) {
-    return this.tryonService.tryon(req.user.userId, file, productId);
+    return this.tryonService.tryon(req.user.userId, file, productId, thumbnailUrl);
   }
 
   @Get('history-tryon')

@@ -835,37 +835,44 @@ export class ProductService {
       if (status) {
         whereCondition.ApprovalStatus = status;
       }
-      const products = await this.prisma.products.findMany({
-        where: whereCondition,
-        skip,
-        take: limit,
-        orderBy: {
-          UpdatedAt: 'desc',
-        },
-        select: {
-          ProductId: true,
-          ProductName: true,
-          Price: true,
-          ThumbnailUrl: true,
-          IsActive: true,
-          ApprovalStatus: true,
-          RejectReason: true,
-          ReviewedAt: true,
-          UpdatedAt: true,
-          CreatedAt: true,
-          Categories: {
-            select: {
-              CategoryId: true,
-              CategoryName: true,
+
+      // Đếm tổng số sản phẩm theo điều kiện lọc
+      const [products, total] = await Promise.all([
+        this.prisma.products.findMany({
+          where: whereCondition,
+          skip,
+          take: limit,
+          orderBy: {
+            UpdatedAt: 'desc',
+          },
+          select: {
+            ProductId: true,
+            ProductName: true,
+            Price: true,
+            ThumbnailUrl: true,
+            IsActive: true,
+            ApprovalStatus: true,
+            RejectReason: true,
+            ReviewedAt: true,
+            UpdatedAt: true,
+            CreatedAt: true,
+            Categories: {
+              select: {
+                CategoryId: true,
+                CategoryName: true,
+              },
+            },
+            ProductVariants: {
+              select: {
+                Stock: true,
+              },
             },
           },
-          ProductVariants: {
-            select: {
-              Stock: true,
-            },
-          },
-        },
-      });
+        }),
+        this.prisma.products.count({
+          where: whereCondition,
+        }),
+      ]);
 
       const result = products.map((product) => {
         const totalStock = product.ProductVariants.reduce(
@@ -898,6 +905,12 @@ export class ProductService {
       return {
         message: 'Get my products successfully',
         data: result,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
       };
     } catch (error) {
       this.logger.error(error);
